@@ -93,6 +93,12 @@ You can use my coupon code: <i><strong>DWINSPINA</strong></i>  to obtain some di
 
 ****************** 
 
+If you appreciate my work, pay me a coffee: 
+
+<a target="_blank" href="https://www.paypal.com/donate/?business=UPRH64ZWV5M4E&no_recurring=0&currency_code=EUR"><img border="0" src="https://github.com/user-attachments/assets/17768a9f-a07d-4521-9839-ec5e2b77f3cd"></a>
+
+****************** 
+
 
 Here is some pics of working project
 
