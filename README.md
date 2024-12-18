@@ -78,6 +78,10 @@ This is the schematics:
 
 ![schematic](https://github.com/user-attachments/assets/2369686e-838d-48aa-961f-b31e9447bd95)
 
+and my own PCB Design to support COB and COF display or only COF:
+
+![IMG_4431](https://github.com/user-attachments/assets/65deff3a-15e1-48b6-9a04-7e1c99374afc)
+
 You can find display used here: 
 
 COF: https://it.aliexpress.com/item/1005005579119952.html
