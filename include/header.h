@@ -18,8 +18,7 @@
 #include "esp_ota_ops.h"
 
 //project libraries
-#include "Elm327.h"
+#include "OBD2.h"
 #include "ESP32S3Buzzer.h"
 #include "WS2812Led.h"
 #include "DWIN.h"
-#include "SoftwareSerial.h"

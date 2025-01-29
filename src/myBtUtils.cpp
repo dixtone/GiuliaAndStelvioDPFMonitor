@@ -3,11 +3,11 @@
 #include "myApplication.h"
 #include "myDisplay.h"
 
-extern ELM327 elm327;
 extern myApplication app;
 extern BluetoothSerial BluetoothConnector;
 extern myUtils utils;
 extern myDisplay display;
+extern OBD2 obd2;
 
 using namespace std;
 
@@ -91,6 +91,11 @@ void myBtUtils::beginScan(){
 
     String s = "";
 
+    display.getHmi()->setText(BT_DEV1_TXT, "Nessun dispositivo trovato!", 30);
+    display.getHmi()->setText(BT_DEV2_TXT, " ", 30);
+    display.getHmi()->setText(BT_DEV3_TXT, " ", 30);
+    display.getHmi()->setText(BT_DEV4_TXT, " ", 30);
+
     if(_devicesN!=-1)
     {
       for(short i=0,j=1,yy=0;i<=_devicesN;i++,j++)
@@ -123,13 +128,7 @@ void myBtUtils::beginScan(){
            }
       }  
     }
-    
-    else{
-      display.getHmi()->setText(BT_DEV1_TXT, "Nessun dispositivo trovato!", 30);
-      display.getHmi()->setText(BT_DEV2_TXT, " ", 30);
-      display.getHmi()->setText(BT_DEV3_TXT, " ", 30);
-      display.getHmi()->setText(BT_DEV4_TXT, " ", 30);
-    }
+  
 }
 
 void myBtUtils::connectPairedDevice(){
@@ -237,21 +236,6 @@ void myBtUtils::checkBootPairedDevice(){
     }
 }
 
-void myBtUtils::checkLostConnection(){
-    
-    if(ELM_DIRECT) return;
-
-    if (!BluetoothConnector.hasClient() && !pairedDevice.phantom)
-    {
-        if (!app.ElmIsLost)
-        {
-            app.CurrentStatus = AppStatus::BtLost;
-            app.ELMInitialized = false;
-            _previousLostConnectionMillis = millis();
-        }
-    }
-}
-
 bool myBtUtils::btAlreadyFound(String s){
 
   for(short i=0;i<MAX_BT_DEVICES;i++)
@@ -316,7 +300,7 @@ bool myBtUtils::elm327Init(bool realPairing){
    
     BluetoothConnector.begin(btname, true); //Bluetooth device name
           
-    utils.resetELMValues();
+    utils.resetOBD2RequestValues();
          
     //convert bluetooth address ex. da 30:37:66:6b:87:94 to uint8t    
     uint8_t data[6];
@@ -334,13 +318,17 @@ bool myBtUtils::elm327Init(bool realPairing){
     if(connectionResult)
     {
        utils.DebugSerial("Connessione bluetooth avvenuta.");
+     
+       app.ELMInitialized = obd2.BeginElm327(BluetoothConnector, 2000);
        
-       app.ELMInitialized = elm327.begin(BluetoothConnector, ELM_DUMP, 2000);
-       utils.DebugSerial("elm32 inizializzato.");
-
        if(app.ELMInitialized)
        {
+         utils.DebugSerial("elm327 inizializzato.");
          utils.elm327Setup(); 
+         utils.resetOBD2RequestValues();
+       }
+       else{
+        utils.DebugSerial("elm327 non inizializzato.");
        }
     }
     else{
@@ -511,67 +499,82 @@ void myBtUtils::clearBoundedDevices(){
     }
 }
 
+bool myBtUtils::checkLostConnection(){
+    
+    if(CANBUS_DIRECT) return false;
+   
+    if (!BluetoothConnector.hasClient() && !pairedDevice.phantom && app.CurrentStatus == AppStatus::Main)
+    {
+        utils.DebugSerial("Bluetooth has no client: Set app status to BtLost");
+        app.CurrentStatus = AppStatus::BtLost;
+       
+    }
+
+    return false;
+}
+
 void myBtUtils::Loop(){
   
-  if(ELM_DIRECT) return;
+  if(CANBUS_DIRECT) return;
+
+  //if we lost connection
+  checkLostConnection();
 
   if (app.CurrentStatus == AppStatus::BtLost)
   {
 
-      if (utils.getSettings().lost_connection_attemps < 1)
-      {
-          utils.DebugSerial("Attempt end, goto home");
-          app.CurrentStatus = AppStatus::BtNoConnection;
-          utils.resetELMValues();
-          app.displayHomePage();
-          return;
-      }
-
-      //reconnection attempts
+      //first time we enter in btlost
       if (_lostConnectionAttempts == -1)
       {
-          display.getHmi()->setPage(DwinPage::PAGE_BT_CONNECT_FAILED);
+          app.ElmIsLost = true; 
+          _previousLostConnectionMillis = millis();
           _lostConnectionAttempts = utils.getSettings().lost_connection_attemps;
-          display.getHmi()->setText(BT_TXT_LOST, "Tentativi di riconnessione: " + String(_lostConnectionAttempts), 40);
+          display.getHmi()->setPage(DwinPage::PAGE_BT_CONNECT_FAILED);
+          display.getHmi()->setText(BT_TXT_LOST, "Prova di riconnessione: " + String(_lostConnectionAttempts), 40);
           utils.DebugSerial("Init lost connection");
       }
+      else{
 
-      if (_lostConnectionAttempts < 1)
-      {
-          utils.DebugSerial("Attempt end, goto home");
-          _lostConnectionAttempts = -1;
-          app.CurrentStatus = AppStatus::BtNoConnection;
-          app.displayHomePage();
-          return;
-      }
-
-      if (millis() - _previousLostConnectionMillis > 3000)
-      {
-
-          _previousLostConnectionMillis = millis();
-
-          //attempt new connection
-          utils.DebugSerial("Connessione persa: tentativo di riconnessione");
-
-          //if reinit, we are ok!
-          if (elm327Init(true))
+          if (millis() - _previousLostConnectionMillis > 3000)
           {
-              _lostConnectionAttempts = utils.getSettings().lost_connection_attemps;
-              app.CurrentStatus = AppStatus::Main;
-              utils.elm327Setup();
-              utils.resetELMValues();
-              app.displayHomePage();
-              delay(1000);
-          }
-          else {
-              app.ElmIsLost = false;                
-              _lostConnectionAttempts--;
-              app.CurrentStatus = AppStatus::BtLost;
-              app.ELMInitialized = false;
-          }
 
-          display.getHmi()->setText(BT_TXT_LOST, "Tentativi di riconnessione: " + String(_lostConnectionAttempts), 40);
+              _previousLostConnectionMillis = millis();
+
+              //until trying reconnect
+              if(_lostConnectionAttempts > 0)
+              {
+                  //attempt new connection
+                  utils.DebugSerial("Connessione persa: tentativo di riconnessione "+String(_lostConnectionAttempts));
+
+                  //if reinit, we are ok!
+                  if (elm327Init(true))
+                  {
+                      app.ElmIsLost = false;
+                      _lostConnectionAttempts = -1;
+                      utils.elm327Setup();
+                      app.CurrentStatus = AppStatus::Main;
+                      app.displayHomePage();
+                      delay(1000);
+                  }
+                  else {  
+                      _lostConnectionAttempts--;
+                      app.CurrentStatus = AppStatus::BtLost;                      
+                  }
+                  
+                  display.getHmi()->setText(BT_TXT_LOST, "Prova di riconnessione: " + String(_lostConnectionAttempts), 40); 
+              }
+              //trying finished, goto home
+              else{
+                  app.ELMInitialized = false;
+                  app.ElmIsLost = false;
+                  utils.DebugSerial("Attempt end, goto home");
+                  _lostConnectionAttempts = -1;
+                  app.CurrentStatus = AppStatus::BtNoConnection;
+                  app.displayHomePage();
+                  return;   
+              }
+              
+          }
       }
-
   }
 }

@@ -21,14 +21,14 @@ class myUtils{
         void resetFactory();
         
         void elm327Setup();
-        void resetELMValues();
+        void resetOBD2RequestValues();
         void readOilValues();
         void writeOilValues(float previousLevel, float currentLevel);
         void resetOilValues();
         void resetDevice();
 
-        static void NullCb(String PidName){};
-        static void CustomBytesValues(String PidName);
+        static void NullCb(String PidName, uint8_t* responseBytes){};
+        static void CustomBytesValues(String PidName, uint8_t* responseBytes);
 
         
 

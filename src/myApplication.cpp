@@ -9,59 +9,68 @@ extern myBtUtils btUtils;
 extern myDisplay display;
 extern WS2812Led wsLED;
 extern ESP32S3Buzzer buzzer;
-extern ELM327 elm327;
 extern TaskHandle_t asyncTask;
 extern BluetoothSerial BluetoothConnector;
-extern EspSoftwareSerial::UART ElmConnector;
+extern OBD2 obd2;
 
 extern myApplication app;
 
 void myApplication::Init(){
     
     utils.DebugSerial("Init application");
+    
+    #if CANBUS_DIRECT
+    //ss
+    pinMode(START_STOP_PIN, OUTPUT_OPEN_DRAIN);
+    digitalWrite(START_STOP_PIN, HIGH);
+    #else
+    //led
+    wsLED.Brightness(255);
+    wsLED.Update(0xff,0x99,0xDA,0, 0, true);
+    #endif
+
+    
+
     display.Init();
     delay(1000);
     display.SetPage(DwinPage::PAGE_LOADING);
     utils.InitFS();
 
-    if(ELM_DIRECT)
-    {
-        ElmConnector.begin(ELM_BAUDRATE, SWSERIAL_8N1,ELM_RX, ELM_TX, false);
-        if(!ElmConnector)
-        {
-          utils.DebugSerial("Elm direct not initialized");
-          while(1){}
-        }
-    }
-
-    //led
-    wsLED.Brightness(255);
-    wsLED.Update(0xff,0x99,0xDA,0, 0, true);
-  
+    //buzzer
     buzzer.begin();
     buzzer.tone(500, 10, 50, 1); 
-
+    
     delay(3000);
 
     utils.readSettings();
 
     utils.readOilValues();
 
-    display.InitDisplayVariables();
-
     //setting up obd reading on core1
-    xTaskCreatePinnedToCore( readELMValues, "readELMValues", 8096, NULL, 2, &asyncTask, 1); //core1
+    xTaskCreatePinnedToCore( readOBD2Values, "readOBD2Values", 8096, NULL, 2, &asyncTask, 1); //core1
+    //setup handler
+    obd2.onHandleValue(&app);
 
-    if(ELM_DIRECT)
-    {
-       ELMInitialized = elm327.begin(ElmConnector, ELM_DUMP, 2000);
-       utils.elm327Setup(); 
-    }
-    else{
-       btUtils.checkBootPairedDevice();
-    }
+    #if CANBUS_DIRECT
+    //using SJA1000 transceiver
+    obd2.Begin(CAN_TX_PIN, CAN_RX_PIN, 500E3);
+
+    //lister for these messages Id (without querying them)
+    obd2.addBroadcastFilter(0x226); //ECU for start & stop
+    obd2.addBroadcastFilter(0x4B2); //ECU for oil pressure and other
+    
+    //add some filters for canbus messages: they correspond to reverse header of OBD2Request
+    obd2.addPacketFilter(0x18DAF1FA);
+    obd2.addPacketFilter(0x18DAF110);
+    obd2.addPacketFilter(0x18DAF1C7);
+    obd2.addPacketFilter(0x18DAF140);
+    obd2.addPacketFilter(0x18DAF160);
+    #else
+    btUtils.checkBootPairedDevice();
+    #endif
 
     displayHomePage();
+    display.InitDisplayVariables();
 
     _isInitialized = true;
 }
@@ -69,7 +78,7 @@ void myApplication::Init(){
 void myApplication::displayHomePage(){
 
 
-  if(ELMInitialized || ELM_DIRECT)
+  if(ELMInitialized || CANBUS_DIRECT)
   {
      CurrentStatus = AppStatus::Main;     
      switchPidGroup("DPF_PIDS", false);
@@ -85,7 +94,7 @@ void myApplication::displayHomePage(){
   }
   else{
 
-      if(ELM_DIRECT)
+      if(CANBUS_DIRECT)
           return;
 
       CurrentStatus = AppStatus::BtNoConnection;
@@ -102,6 +111,8 @@ void myApplication::displayHomePage(){
 
 void myApplication::switchPidGroup(String _group, bool resetValues){
 
+  obd2.flush();
+
   if(CurrentPidGroup==_group)
     return;
     
@@ -110,15 +121,10 @@ void myApplication::switchPidGroup(String _group, bool resetValues){
   switchPidOccours = true;
   
   CurrentPidGroup = _group;
-
-  if(ELMInitialized)
-  {
-    elm327.flushAll();
-  }
   
   if(resetValues)
   {
-    utils.resetELMValues();
+    utils.resetOBD2RequestValues();
     delay(500);
   }
   
@@ -127,7 +133,7 @@ void myApplication::switchPidGroup(String _group, bool resetValues){
 }
 
 bool myApplication::unreadableData(){
-  return (elm327.nb_rx_state == ELM_NO_DATA || elm327.nb_rx_state == ELM_STOPPED || elm327.nb_rx_state == ELM_TIMEOUT || elm327.nb_rx_state == ELM_GENERAL_ERROR || elm327.nb_rx_state == ELM_NO_RESPONSE);
+  return obd2.status==OBD2StatusType::timeout || obd2.status==OBD2StatusType::nodata || obd2.status==OBD2StatusType::error;
 } 
 
 void myApplication::checkRegenerationStatus(){
@@ -170,167 +176,167 @@ void myApplication::checkAlarms(){
   }
 }
 
-//obd reading on Task1
-void myApplication::readELMValues(void * parameter){
+//OBD2 handler
+void myApplication::onOBD2Response(OBD2Request* request, float value, uint8_t* responseBytes){
 
-  float v = 0.0;
-  PidRequest* request;  
-  bool _enginerpm = false;
-  bool _initEcu = false;
-  String _prevHeader="";
-    
-  while(1)
-  {
-      buzzer.update();//it's faster here
-      delay(10);
-      
-      if(app.pidListSize<1 || app.switchPidOccours)
-        continue;
-        
-      if(app.isInitialized() && app.ELMInitialized)
-      {
-        
-          if(app.ElmIsLost || app.CurrentStatus != AppStatus::Main)
-          {
-              continue;
-          }
+  //when value occours set it for display
+  //Serial.print("Received message for "+request->Name+" :");
+  //Serial.println(value);
 
-          app.tempAlarm = (app.DPF_EXAUST_TEMP>=utils.getSettings().temp_alert && utils.getSettings().temp);
-          app.clogAlarm = (int(app.DPF_CLOGGING)>=utils.getSettings().clogging_alert  && utils.getSettings().clogging);
-          app.regenAlarm = (app.regenerationInProgress && utils.getSettings().regeneration);          
-
-          //we send RPM first to unlock ecu
-          if(!_enginerpm)
-          {
-                elm327.processPID(0x01, 0x0C, 1 , 2, 1.0/4.0, 0); //standard ((A*256)+B)/4
-                utils.DebugSerial("Readinf RPM to init flow");
-          }
-          //query pidsd
-          else{
-              
-              app.checkRegenerationStatus();
-              
-              if(app.pidIndex>app.pidListSize)
-              {
-                          
-                app.pidIndex = 0; 
-                //delay for new read cycle
-                delay(utils.getSettings().obd_cmd_delay);            
-              }
-
-              request = &app.pidList[app.pidIndex];
-
-              //filter PIDS by group
-              //debugSerial("Current: "+ CurrentPidGroup+" Pid: "+request->Name);
-              if(request->Group!=app.CurrentPidGroup && request->Group!="ALL_PIDS")
-              {
-                 app.pidIndex++;
-                 continue;
-              }  
-              
-              //change header if different or we getting values
-              if(_prevHeader != request->Header && elm327.nb_rx_state != ELM_GETTING_MSG)
-              {
-                 // debugSerial("Send Header: "+request->Header+" prev: "+_prevHeader);
-                  elm327.sendHeader(request->Header, false);
-              }
-
-              if(elm327.nb_rx_state != ELM_GETTING_MSG)
-              {
-
-                //ready to send pid
-                if(elm327.getCmdState() == ELM327ObdState::SEND_COMMAND)
-                {
-                    //first read
-                    if(request->ReadTime==0)
-                    {
-                        request->ReadTime = millis();
-                        utils.DebugSerial("Setup ReadTime for pid "+request->Name);
-                    }
-                    //next read
-                    else{
-                        if(millis()- request->ReadTime > request->ReadInterval)
-                        {
-                           request->ReadTime = millis();
-                        }
-                        else{
-                            app.pidIndex++;
-                            continue;
-                        }
-                    }
-                }
-              }
-
-              //if AlwaysSendHeader we send header before pid
-              if(request->AlwaysSendHeader && elm327.nb_rx_state != ELM_GETTING_MSG)
-              {
-                 elm327.sendHeader(request->Header, true);
-              }
-              
-              v = elm327.processPID(request->Service, request->Pid, request->ExpectedRows , request->ExpectedBytes, request->ScaleFactor, request->AdjustFactor); 
-
-             // debugSerial("Leggo PID: "+String(request->Pid, HEX)+" Valore: "+String(v)+" current:"+String(millis())+" Ultima lettura il "+String(request->ReadTime));
-          }        
-          
-          if(elm327.nb_rx_state == ELM_SUCCESS)
-          {
-              if(!_enginerpm)
-              {
-                 _enginerpm = true;
-
-                 utils.DebugSerial("Ecu inizializzata");
-
-              }
-              else
-              {                                    
-                    *request->BindValue = v;
-
-                    //debugSerial("Letto PID: "+String(request->Name)+" valore:"+String(v));
-                    
-                    app.pidList[app.pidIndex].ValueCallback(request->Name);  
-  
-                    //only for RPM: we have to send everytime
-                    if(!_enginerpm)
-                    {
-                      _enginerpm = true;
-                    }
-                                
-                    _prevHeader = request->Header;
-                    app.pidIndex++;
-                
-              }                          
-          }
-          else if(app.unreadableData())
-          {
-            
-            if(_enginerpm)
-            {
-              app.pidIndex++;    
-              *request->BindValue = 0.0;
-              request->ReadTime = millis();
-              app.pidList[app.pidIndex].ValueCallback(request->Name);
-              _prevHeader = request->Header;
-              //debugSerial("Unreadable PID: "+String(request->Pid, HEX));      
-            }    
-         }  
-
-         utils.writeOilValues(app.lastOilLevel, app.OIL_LEVEL);
-
-         if(app.OIL_LEVEL>0.0){
-            app.lastOilLevel = app.OIL_LEVEL;
-         }       
-         
-      }
-      else{
-        // _enginerpm = false;
-      }
-  } 
-
+  *request->BindValue = value;
+  request->ValueCallback(request->Name, responseBytes); //call to valuecallback method
 }
 
-void myApplication::FlushPidReadInterval(String PidName)
+//OBD2 reading on Task1
+void myApplication::readOBD2Values(void * parameter){
+
+  OBD2StatusType obdStatus;
+  OBD2BroadcastPacket bp;
+  OBD2Request* request;  
+  long sendTime = millis();
+  int timeoutSend = 1000;
+  bool _enginerpm = false;
+  long _prevHeader=0x0;
+
+  while(1)
+  {
+
+    buzzer.update();//it's faster here
+
+    if(app.isInitialized() && app.CurrentStatus==AppStatus::Main && (obd2.isELM327()?(app.ELMInitialized && !app.ElmIsLost):true))
+    { 
+           
+      #if CANBUS_DIRECT
+      bp = obd2.getBroadcastPacket();
+      if(bp.Header>0x0)
+      {
+          //S&S Status
+          if(bp.Header==0x226 && DISABLE_STARTSTOP)
+          {
+              app.checkStartAndStop(&bp);
+          }
+
+          //Oil pressure 
+          if(bp.Header==0x4B2)
+          {
+              app.handleOilPressure(&bp);
+          } 
+      //  Serial.printf("\n>> Broadcast packet %04x : %02x %02x %02x %02x %02x %02x %02x %02x\n", bp.Header, bp.Byte0, bp.Byte1, bp.Byte2, bp.Byte3, bp.Byte4, bp.Byte5, bp.Byte6, bp.Byte7);
+      }
+      #endif           
+            
+      //perform some checks
+      app.checkRegenerationStatus();
+      app.tempAlarm = (app.DPF_EXAUST_TEMP>=utils.getSettings().temp_alert && utils.getSettings().temp);
+      app.clogAlarm = (int(app.DPF_CLOGGING)>=utils.getSettings().clogging_alert  && utils.getSettings().clogging);
+      app.regenAlarm = (app.regenerationInProgress && utils.getSettings().regeneration);
+      
+      //obd2 process flow
+      obdStatus = obd2.process();
+     
+      if(app.pidIndex>app.pidListSize)
+      {
+        app.pidIndex = 0;        
+      }
+      
+      #if CANBUS_DIRECT
+      request = &app.pidList[app.pidIndex];
+      #else
+      //when elm327 we have to send rpm to unlock ecu, once
+      if(!_enginerpm)
+      {
+        request = &app.standardPidList[0];
+        app.CurrentPidGroup = request->Group;
+        obd2.sendRequest(request);
+        
+        if(obdStatus==OBD2StatusType::ready)
+        {
+          utils.DebugSerial("Readinf RPM to init flow");
+        }
+        
+      }
+      else{
+        request = &app.pidList[app.pidIndex];
+      }
+      #endif
+            
+
+      //filter PIDS by group
+      //debugSerial("Current: "+ CurrentPidGroup+" Pid: "+request->Name);
+      if(request->Group!=app.CurrentPidGroup && request->Group!="ALL_PIDS")
+      {
+          app.pidIndex++;
+          continue;
+      }  
+
+      if(obdStatus == OBD2StatusType::ready)
+      {  
+        //send every cmd delay setting
+        if(millis()-sendTime > utils.getSettings().obd_cmd_delay)
+        {           
+          sendTime = millis();      
+          
+          //no timeout for first read
+          if(request->ReadTime==0){
+            request->ReadTime = -1 & 0xFF0000;
+          }
+
+          //check pid readtime
+          if((millis() - request->ReadTime) > request->ReadInterval)
+          {
+              request->ReadTime = millis();
+          }
+          else{
+            app.pidIndex++;
+            continue;
+          } 
+
+          #if !CANBUS_DIRECT
+          //when ELM we have to check if change request header
+          if(_prevHeader != request->Header || request->AlwaysSendHeader)
+          {
+              _prevHeader = request->Header;
+            obd2.sendElmHeader(request->Header);
+          }
+          #endif
+
+          obd2.sendRequest(request);
+          app.pidIndex++;
+        }         
+      }
+      else if(obdStatus == OBD2StatusType::received){
+       
+        #if !CANBUS_DIRECT
+        if(request->Name=="RPM")
+        {
+          _enginerpm = true;
+          _prevHeader = request->Header;
+
+          app.CurrentPidGroup = "DPF_PIDS"; //lets start from DPF pids, once
+        }        
+        #endif
+      }      
+      else if(obdStatus == OBD2StatusType::timeout){
+        //timeout occours from canbus     
+        request->ReadTime = 0;
+        utils.DebugSerial("Unreadable PID (timeout): "+String(request->Pid, HEX));
+      }  
+      
+      utils.writeOilValues(app.lastOilLevel, app.OIL_LEVEL);
+
+      if(app.OIL_LEVEL>0.0){
+        app.lastOilLevel = app.OIL_LEVEL;
+      } 
+      
+    }
+    
+    delay(10);
+  }
+}
+
+void myApplication::flushPidReadInterval(String PidName)
 {
-  PidRequest* request;
+  OBD2Request* request;
   
   for(int i=0;i<pidListSize;i++)
   {
@@ -345,6 +351,82 @@ void myApplication::FlushPidReadInterval(String PidName)
   }
 }
 
+//oil pressure came in broadcast with packet id 0x4B2
+//then response is similar: 32 16 80 00 00 00 00 00
+//to take oil pressure we have to take from byte0 bit0 and from byte1 bit 7 ~ bit 1 
+//then we apple mask: 0b0000000111111110
+void myApplication::handleOilPressure(OBD2BroadcastPacket* p){
+    app.OIL_PRESSURE = (float)( (( ((p->Byte0<<(8))| p->Byte1) & 0b0000000111111110) >> 1)/10.0 );
+}
+
+void myApplication::checkStartAndStop(OBD2BroadcastPacket* p){
+    //0xF1: ss ON  and indicator light OFF
+    //0x05: ss OFF and indicator light ON
+    startAndStopIsOn = (p->Byte1 == 0xF1); 
+    //Serial.printf("\nhead 0x226 SS: %2x %2x %2x %2x %2x %2x %2x %2x \n", p->Byte0, p->Byte1, p->Byte2, p->Byte3, p->Byte4, p->Byte5, p->Byte6, p->Byte7 );
+    if(!startAndStopIsOn)
+    {
+       startAndStopExecutedTries = 0;
+       startAndStopCheckMillis = 0;
+
+       if(DEBUG_MODE)
+       {
+         Serial.println("Start and Stop is disabled!");
+       }
+    }
+}
+
+void myApplication::disableStartAndStop(){
+       
+    
+    if(startAndStopIsOn && startAndStopExecutedTries < startAndStopTries)
+    {
+        if(!startAndStopCheckMillis)
+        {
+          startAndStopCheckMillis = millis();
+        }
+
+        //after startAndStopCheckTimeout pulldown pin
+        if(millis()-startAndStopCheckMillis > startAndStopCheckTimeout)
+        {
+            digitalWrite(START_STOP_PIN, LOW);
+            startAndStopPulledDown = true;
+            
+            if(!startAndStopPullUpMillis)
+              startAndStopPullUpMillis = millis();
+
+            if(DEBUG_MODE)
+            {
+               Serial.println("PullDown Start & Stop");
+            }
+        }
+
+        if(startAndStopPulledDown && (millis()-startAndStopCheckDisableTimeout > startAndStopPullUpMillis))
+        { 
+            startAndStopExecutedTries++;
+            
+            digitalWrite(START_STOP_PIN, HIGH);
+            startAndStopCheckMillis = 0;
+            startAndStopPullUpMillis = 0;
+            startAndStopPulledDown = false;
+
+            if(DEBUG_MODE)
+            {
+               Serial.println("PullUp Start & Stop");
+            }
+
+        }
+        
+    }
+    else{
+      if(startAndStopPulledDown)
+      {
+        digitalWrite(START_STOP_PIN, HIGH);
+        startAndStopPulledDown = false;
+      }
+    }
+}
+
 void myApplication::Loop(){
 
     //all components loop here
@@ -354,20 +436,20 @@ void myApplication::Loop(){
     {
         display.UpdateDisplayVariables();
 
-
         if ((_prevregenerationInProgress != regenerationInProgress))
         {
-            FlushPidReadInterval("KM_FROM_LAST_DPF");
-            FlushPidReadInterval("DPF_REGENERATIONS");
+            flushPidReadInterval("KM_FROM_LAST_DPF");
+            flushPidReadInterval("DPF_REGENERATIONS");
             _prevregenerationInProgress = regenerationInProgress;
             displayHomePage();
         }
-
-        //if we lost connection
-        btUtils.checkLostConnection();
     }
     
     btUtils.Loop();
+    
+    #if CANBUS_DIRECT && DISABLE_STARTSTOP
+    disableStartAndStop();
+    #endif
 
     delay(10);
 }

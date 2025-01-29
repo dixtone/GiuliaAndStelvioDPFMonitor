@@ -72,8 +72,13 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVP(DwinAddress::DASH_COOLANT_ICO, app.ENGINE_COOLANT_TEMP_OEM>103.0?0:(app.ENGINE_COOLANT_TEMP_OEM<=103.0 && app.ENGINE_COOLANT_TEMP_OEM>95.0)?1:2);
         _hmi->setVPInt(DwinAddress::DASH_TXT_COOLANT, (int)app.ENGINE_COOLANT_TEMP_OEM);
 
-        _hmi->setVP(DwinAddress::DASH_OIL_ICO, app.OIL_DEGRADATION>85.0?2:(app.OIL_DEGRADATION<=85.0 && app.OIL_DEGRADATION>50.0)?1:0);
+        #if CANBUS_DIRECT
+         _hmi->setVP(DwinAddress::DASH_OIL_ICO, app.OIL_PRESSURE>1.5?2:(app.OIL_PRESSURE<=1.5 && app.OIL_PRESSURE>0.8)?1:0);
+        #else
+         _hmi->setVP(DwinAddress::DASH_OIL_ICO, app.OIL_DEGRADATION>85.0?2:(app.OIL_DEGRADATION<=85.0 && app.OIL_DEGRADATION>50.0)?1:0);
+        #endif       
         _hmi->setVPInt(DwinAddress::DASH_TXT_OIL, (int)app.OIL_DEGRADATION);
+        _hmi->setVPFloat(DwinAddress::DASH_TXT_OIL_PRESSURE, app.OIL_PRESSURE);
 
         _hmi->setVPInt(DwinAddress::DASH_GAUGE_CLOGGING, map((int)app.DPF_CLOGGING, 0, 107, 0, 7)); //map gauge areas(7) and clogging value( 0 to 107%)
         _hmi->setVPInt(DwinAddress::DASH_TXT_CLOGG_PERC, (int)app.DPF_CLOGGING);  
@@ -105,7 +110,7 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_VAL_TURBO_GAUGE, (int)(app.TURBO_BOOST_PRESSURE*100));
         _hmi->setVPFloat(DwinAddress::DASH_VAL_TURBO, app.TURBO_BOOST_PRESSURE);
         _hmi->setVPInt4(DwinAddress::DASH_VAL_DIFFPRESSURE, (int)app.DIFFERENTIAL_PRESSURE);
-        _hmi->setVPInt(DwinAddress::DASH_VAL_DIFFPRESSURE_GAUGE, (int)(app.DIFFERENTIAL_PRESSURE/10));
+        _hmi->setVPInt(DwinAddress::DASH_VAL_DIFFPRESSURE_GAUGE, (int)(app.DIFFERENTIAL_PRESSURE));
         _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE, (int)app.OVER_ENG_VALVE);
         _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE_GAUGE, 100-(int)app.OVER_ENG_VALVE); //reverse rotation for gauge
     }
@@ -385,7 +390,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
         }
         else if(message == DwinAddress::SETTING_INIT_ALL_BTN)
         {
-           _hmi->setPage(0);
+           _hmi->setPage(1);
            utils.resetFactory();
         }
         else if(message == DwinAddress::SETTING_RESET_BTN)
@@ -424,7 +429,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
       break; 
     
      case DwinAddress::SETTING_READ_TIMEOUT_VALUE:
-        utils.getSettings().obd_cmd_delay = message;
+        utils.getSettings().obd_cmd_delay = message>0?message:250; //safe with obd read
      break;
 
      case DwinAddress::SETTING_RECONNECT_TRIES_VALUE:

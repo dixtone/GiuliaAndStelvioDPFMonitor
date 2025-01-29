@@ -3,7 +3,7 @@
 #include "myBtUtils.h"
 #include "myApplication.h"
 
-extern ELM327 elm327;
+extern OBD2 obd2;
 extern myApplication app;
 extern BluetoothSerial BluetoothConnector;
 extern myBtUtils btUtils;
@@ -295,89 +295,86 @@ void myUtils::resetOilValues(){
   DebugSerial("Deleted oil log files");
 }
 
-void myUtils::CustomBytesValues(String PidName){
+void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
                 
     if(PidName=="TURBO_BOOST_PRESSURE")
     {   
         //atmo pressure 1009 mbar
         //boost pressure ((A*256)+B)-32767
-        app.TURBO_BOOST_PRESSURE = ((elm327.responseByte[0]*256 + elm327.responseByte[1])-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009);
+        app.TURBO_BOOST_PRESSURE = ((responseBytes[0]*256 + responseBytes[1])-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009);
     }
     else if(PidName=="KEY_NUMBER_AND_LAST")
     {
-        app.KEY_NUMBER = elm327.responseByte[2];
-        app.KEY_LAST = elm327.responseByte[3];
+        app.KEY_NUMBER = responseBytes[2];
+        app.KEY_LAST = responseBytes[3];
     }
     else if(PidName=="REMOTE_NUMBER_AND_LAST")
     {
-        app.REMOTE_NUMBER = elm327.responseByte[0];
-        app.REMOTE_LAST = elm327.responseByte[1];
+        app.REMOTE_NUMBER = responseBytes[0];
+        app.REMOTE_LAST = responseBytes[1];
     } 
     else if(PidName=="LAST_SERVICE_DATE"){
-        app.LAST_SERVICE_DATE = String(elm327.responseByte[3],HEX)+"/"+ String(elm327.responseByte[2],HEX)+"/"+String(elm327.responseByte[0],HEX)+String(elm327.responseByte[1],HEX);
+        app.LAST_SERVICE_DATE = String(responseBytes[3],HEX)+"/"+ String(responseBytes[2],HEX)+"/"+String(responseBytes[0],HEX)+String(responseBytes[1],HEX);
     }
     else if(PidName=="BATTERY_TEMP_AMP"){
-        app.BATTERY_TEMP = elm327.responseByte[6]>0?elm327.responseByte[6]-40:0;
-        app.BATTERY_AMP = elm327.responseByte[10]+elm327.responseByte[12]; //test
+        app.BATTERY_TEMP = responseBytes[6]>0?responseBytes[6]-40:0;
+        app.BATTERY_AMP = responseBytes[10]+responseBytes[12]; //test
     }
     else if(PidName=="T_ASX"){
-        app.T_ASX = elm327.responseByte[4]>0?elm327.responseByte[4]-50:0;
+        app.T_ASX = responseBytes[4]>0?responseBytes[4]-50:0;
     }
     else if(PidName=="T_ADX"){
-        app.T_ADX = elm327.responseByte[4]>0?elm327.responseByte[4]-50:0;
+        app.T_ADX = responseBytes[4]>0?responseBytes[4]-50:0;
     }
     else if(PidName=="T_PSX"){
-        app.T_PSX = elm327.responseByte[4]>0?elm327.responseByte[4]-50:0;
+        app.T_PSX = responseBytes[4]>0?responseBytes[4]-50:0;
     }
     else if(PidName=="T_PDX"){
-        app.T_PDX = elm327.responseByte[4]>0?elm327.responseByte[4]-50:0;
+        app.T_PDX = responseBytes[4]>0?responseBytes[4]-50:0;
     }         
 }
 
 void myUtils::elm327Setup(){
 
-  elm327.sendCommand_Blocking(SET_ALL_TO_DEFAULTS);
+  obd2.sendElmCommandBlocking("AT D");
   delay(100);
   
-  elm327.sendCommand_Blocking(RESET_ALL);
+  obd2.sendElmCommandBlocking("AT Z");
   delay(100);
 
-  //elm327.sendCommand_Blocking("AT V1"); //VARIABLE_DLC_ON
-  //delay(100);
-
-  elm327.sendCommand_Blocking("AT AR"); //AUTOMATICALLY RESPOND
+  obd2.sendElmCommandBlocking("AT AR"); //AUTOMATICALLY RESPOND
   delay(100);
   
-  elm327.sendCommand_Blocking("AT E0"); //ECHO_OFF
+  obd2.sendElmCommandBlocking("AT E0"); //ECHO_OFF
   delay(100);
 
-  elm327.sendCommand_Blocking("AT S0"); //PRINTING_SPACES_OFF
+  obd2.sendElmCommandBlocking("AT S0"); //PRINTING_SPACES_OFF
   delay(100);
 
-  elm327.sendCommand_Blocking("AT AL"); //ALLOW_LONG_MESSAGES
+  obd2.sendElmCommandBlocking("AT AL"); //ALLOW_LONG_MESSAGES
   delay(100);
  
-  elm327.sendCommand_Blocking("AT AT1"); //ADAPTIVE_TIMING_AUTO_1
+  obd2.sendElmCommandBlocking("AT AT1"); //ADAPTIVE_TIMING_AUTO_1
   delay(100);  
 
-  elm327.sendCommand_Blocking("AT ST32"); //SET_TIMEOUT_TO_H_X_4MS //> FF = 1 secondo, 99 default, 32 (hex) = 50ms (dec)
+  obd2.sendElmCommandBlocking("AT ST32"); //SET_TIMEOUT_TO_H_X_4MS //> FF = 1 secondo, 99 default, 32 (hex) = 50ms (dec)
   delay(100);  
 
-  elm327.sendCommand_Blocking("AT TP 7"); //ISO_15765_29_BIT_500_KBAUD  /6=ISO_15765_11_BIT_500_KBAUD 7=ISO_15765_29_BIT_500_KBAUD << questo è il protocollo alfa
+  obd2.sendElmCommandBlocking("AT TP 7"); //ISO_15765_29_BIT_500_KBAUD  /6=ISO_15765_11_BIT_500_KBAUD 7=ISO_15765_29_BIT_500_KBAUD << questo è il protocollo alfa
   delay(100);  
   
-  elm327.sendCommand_Blocking("AT SP 7"); //ISO_15765_29_BIT_500_KBAUD  /6=ISO_15765_11_BIT_500_KBAUD 7=ISO_15765_29_BIT_500_KBAUD << questo è il protocollo alfa
+  obd2.sendElmCommandBlocking("AT SP 7"); //ISO_15765_29_BIT_500_KBAUD  /6=ISO_15765_11_BIT_500_KBAUD 7=ISO_15765_29_BIT_500_KBAUD << questo è il protocollo alfa
   delay(100);  
-
-  //elm327.sendCommand_Blocking("AT TP A0"); //AUTO PROTOCOL  
 }
 
-void myUtils::resetELMValues(){
+void myUtils::resetOBD2RequestValues(){
+  
+  obd2.flush();
   
   for(int i=0;i<app.pidListSize;i++)
   {
     *app.pidList[i].BindValue = 0.0;
      app.pidList[i].ReadTime = 0;
-     app.pidList[i].ValueCallback(app.pidList[i].Name);  
+     app.pidList[i].ValueCallback(app.pidList[i].Name, obd2.getResponseBytes());  //not needed
   }
 }

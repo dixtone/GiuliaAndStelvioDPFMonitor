@@ -43,24 +43,6 @@ struct PairedDevice {
   bool phantom;
 }; 
 
-//PID Struct
-struct PidRequest {
-  String Group;
-  String Name;
-  bool AlwaysSendHeader;
-  String Header;
-  uint8_t  Service;
-  uint16_t Pid;
-  uint8_t  ExpectedRows;
-  uint8_t  ExpectedBytes;
-  float  ScaleFactor;
-  float  AdjustFactor;
-  float  *BindValue;
-  void (*ValueCallback)(String pid);
-  long ReadInterval; 
-  long ReadTime;
-}; 
-
 enum class AppStatus{
     Undefined = 0,
     Modal = 1,
@@ -126,6 +108,7 @@ enum DwinAddress{
     DASH_TXT_COOLANT = 0x40E0, //2bytes int
     DASH_OIL_ICO = 0x4110, //bit from 0-2
     DASH_TXT_OIL = 0x4150, //2bytes int
+    DASH_TXT_OIL_PRESSURE = 0x50B0, //2bytes int
     DASH_GAUGE_CLOGGING = 0x4180, //int is %
     DASH_TXT_CLOGG_PERC = 0x4190, //2bytes int
     DASH_TXT_EXAUST = 0x41C0, //2bytes int
@@ -218,8 +201,8 @@ enum DwinPage{
 class LoopableClass{
     public:
         virtual ~LoopableClass(){}
-        virtual void Loop(){}
-        virtual void Init(){}
+        virtual void Loop(){};
+        virtual void Init(){};
 };
 
 #endif

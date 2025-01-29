@@ -21,7 +21,7 @@
 class IDWINHandler{
     public:
         virtual ~IDWINHandler(){}
-        virtual void displayEventHandler(long address, int lastByte, int message, String response){}
+        virtual void displayEventHandler(long address, int lastByte, int message, String response){};
 };
 
 class DWIN{

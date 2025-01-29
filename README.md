@@ -1,4 +1,30 @@
+### [UPDATE 29/01/2025]
 
+Introduced new unified library to connect **OBD2 CanBus** through Bluetooth Dongle or 2 wire using a transceiver like the SN65HVD230. 
+
+You can found info about my OBD2 Library here: **https://github.com/dixtone/OBD2**
+
+With this important update, now you can:
+1) connect directly to canbus or using bluetooth, simply changing platformio.ini build_flags
+2) when using direct connection, you can disable your start&stop by simulating user press button on panel, after device starts
+3) reading Engine Oil pressure (finally!!!)
+
+
+#### Here is and example about direct connection to canbus: ####
+
+![alt text](images\dixtone_giulia_stelvio_connection.png)
+
+Removing button panel, you can take a wire from pin 5 and check with a multimeter: when you press start and stop button disabler, you have to read about 1.5kΩ to GND. 
+This means using upper schematics, that pulling down GPio pin with 1.5kΩ resistor, you can emulate user press button
+
+![alt text](images\start-stop-connector.jpeg)
+
+![alt text](images\3dbox.jpeg)
+
+
+Removed unused libraries, code clean and optimizations.
+
+********
 <img border="0" src="https://github.com/user-attachments/assets/622e0cb5-ba29-4840-badb-5596f89e2a06" width="400" >
 
 <img border="0" src="https://github.com/user-attachments/assets/ceffba97-147f-44e0-8d5f-9202af58b010" width="400" >
@@ -59,10 +85,10 @@ TIRES:
 Project is not full completed: i want to add the READ/CLEAR DTC functionality and some more features.
 
 I used some existent libraries to complete the project:
-1) A customized and light version of ELMduino  https://github.com/PowerBroker2/ELMduino
+1) ~~A customized and light version of ELMduino  https://github.com/PowerBroker2/ELMduino~~
 2) A customized version of DWIN DGUS HMI Arduino Library https://github.com/dwinhmi/DWIN_DGUS_HMI/tree/master
 3) ESP32 Buzzer Library https://github.com/hammikb/ESP32-Buzzer
-4) Esp32-SoftwareSerial  https://github.com/junhuanchen/Esp32-SoftwareSerial/tree/master
+4) ~~Esp32-SoftwareSerial  https://github.com/junhuanchen/Esp32-SoftwareSerial/tree/master~~
 5) WS2812Led https://github.com/RadioShuttle/WS2812Led
 
 

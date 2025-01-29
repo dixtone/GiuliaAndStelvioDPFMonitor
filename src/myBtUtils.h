@@ -20,7 +20,7 @@ class myBtUtils: public LoopableClass{
         void unpairBtDevice();
         void searchForBluetoothDevices();
         void checkBootPairedDevice();
-        void checkLostConnection();
+        bool checkLostConnection();
 
         void getPairedDevice();    
         bool savePairedDevice();
