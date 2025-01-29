@@ -12,14 +12,14 @@ With this important update, now you can:
 
 #### Here is and example about direct connection to canbus: ####
 
-![alt text](images\dixtone_giulia_stelvio_connection.png)
+![alt text](images/dixtone_giulia_stelvio_connection.png)
 
 Removing button panel, you can take a wire from pin 5 and check with a multimeter: when you press start and stop button disabler, you have to read about 1.5kΩ to GND. 
 This means using upper schematics, that pulling down GPio pin with 1.5kΩ resistor, you can emulate user press button
 
-![alt text](images\start-stop-connector.jpeg)
+![alt text](images/start-stop-connector.jpeg)
 
-![alt text](images\3dbox.jpeg)
+![alt text](images/3dbox.jpeg)
 
 
 Removed unused libraries, code clean and optimizations.
