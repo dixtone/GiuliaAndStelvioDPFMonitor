@@ -9,6 +9,10 @@ With this important update, now you can:
 2) when using direct connection, you can disable your start&stop by simulating user press button on panel, after device starts
 3) reading Engine Oil pressure (finally!!!)
 
+#### final result: ####
+
+![alt text](images/mounted_monitor.jpeg)
+
 
 #### Here is and example about direct connection to canbus: ####
 
