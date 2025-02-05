@@ -358,7 +358,8 @@ void OBD2::handleBroadcastPackets(long packetId){
 
   _broadcastPacket.Header = packetId;
   int index = 0;
-  if(CAN.available()) CAN.read(); //read first byte DLC
+  //edit: no DLC!
+  //if(CAN.available()) CAN.read(); //read first byte DLC
   while (CAN.available()) {
     _canbuffer[index] = CAN.read();
     index++;

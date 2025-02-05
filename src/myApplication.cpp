@@ -352,18 +352,18 @@ void myApplication::flushPidReadInterval(String PidName)
 }
 
 //oil pressure came in broadcast with packet id 0x4B2
-//then response is similar: 32 16 80 00 00 00 00 00
+//then response is similar to: 28 32 16 80 00 00 00 00
 //to take oil pressure we have to take from byte0 bit0 and from byte1 bit 7 ~ bit 1 
 //then we apple mask: 0b0000000111111110
 void myApplication::handleOilPressure(OBD2BroadcastPacket* p){
-    app.OIL_PRESSURE = (float)( (( ((p->Byte0<<(8))| p->Byte1) & 0b0000000111111110) >> 1)/10.0 );
+    app.OIL_PRESSURE = (float)((p->Byte0 & 0b00000001) << 7 | ((p->Byte1 >> 1) & 0b01111111))/10.0;   
 }
 
 void myApplication::checkStartAndStop(OBD2BroadcastPacket* p){
     //0xF1: ss ON  and indicator light OFF
     //0x05: ss OFF and indicator light ON
-    startAndStopIsOn = (p->Byte1 == 0xF1); 
-    //Serial.printf("\nhead 0x226 SS: %2x %2x %2x %2x %2x %2x %2x %2x \n", p->Byte0, p->Byte1, p->Byte2, p->Byte3, p->Byte4, p->Byte5, p->Byte6, p->Byte7 );
+    startAndStopIsOn = (p->Byte2 == 0xF1); 
+ //   Serial.printf("\nhead 0x226 SS: %2x %2x %2x %2x %2x %2x %2x %2x \n", p->Byte0, p->Byte1, p->Byte2, p->Byte3, p->Byte4, p->Byte5, p->Byte6, p->Byte7 );
     if(!startAndStopIsOn)
     {
        startAndStopExecutedTries = 0;

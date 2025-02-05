@@ -1,3 +1,6 @@
+### [UPDATE 05/02/2025]
+Some Bug fixing related to broadcast packets handling.
+
 ### [UPDATE 29/01/2025]
 
 Introduced new unified library to connect **OBD2 CanBus** through Bluetooth Dongle or 2 wire using a transceiver like the SN65HVD230. 
