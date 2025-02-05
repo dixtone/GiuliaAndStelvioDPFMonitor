@@ -60,6 +60,7 @@ ENGINE:
 1) differential pressure of DPF
 2) turbo boost pressure
 3) engine butterfly valve %
+4) **Start & Stop disabling (NEW HOT!)** (when direct canbus connection!)
    
 KEYS and Remote (useful to get how many copies of key/remote exists)
 1) Key Number and Last used
@@ -72,6 +73,7 @@ SERVICE:
 4) total number of services
 5) remain km to service
 6) remain days to service
+7) **OIL pressure (NEW HOT!)** (when direct canbus connection!)
 
 BATTERY:
 1) Battery voltage
