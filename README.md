@@ -5,7 +5,7 @@ Some Bug fixing related to broadcast packets handling.
 
 Introduced new unified library to connect **OBD2 CanBus** through Bluetooth Dongle or 2 wire using a transceiver like the SN65HVD230. 
 
-You can found info about my OBD2 Library here: **https://github.com/dixtone/OBD2**
+You can find info about my OBD2 Library here: **https://github.com/dixtone/OBD2**
 
 With this important update, now you can:
 1) connect directly to canbus or using bluetooth, simply changing platformio.ini build_flags
