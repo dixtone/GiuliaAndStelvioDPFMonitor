@@ -14,7 +14,7 @@ With this important update, now you can:
 
 #### final result: ####
 
-![alt text](images/mounted_monitor.jpeg)
+![alt text](images/mounted_monitor_round.jpeg)
 
 
 #### Here is and example about direct connection to canbus: ####
