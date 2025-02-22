@@ -1,3 +1,10 @@
+### [UPDATE 22/02/2025]
+Added backlight regulation from headlight command: when **lowbeams are on**, the display **brightness goes low** and viceversa.
+
+This is necessary because at night the display can cause reflections due to the high brightness.
+
+Only works with obd2 direct connection.
+
 ### [UPDATE 05/02/2025]
 Some Bug fixing related to broadcast packets handling.
 

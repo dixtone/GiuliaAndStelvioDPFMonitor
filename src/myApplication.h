@@ -32,6 +32,9 @@ class myApplication: public LoopableClass, public IOBD2MessageListener
 
         //oil pressure
         void handleOilPressure(OBD2BroadcastPacket* p);
+
+        //light command
+        void handleHeadlightsCommand();
         
         //pids and values
         String CurrentPidGroup = "DPF_PIDS";
@@ -170,6 +173,11 @@ class myApplication: public LoopableClass, public IOBD2MessageListener
         long startAndStopCheckDisableTimeout = 500;
         int startAndStopTries = 5;
         int startAndStopExecutedTries = 0;
+        
+        //light command
+        bool headlightsCommand = false;
+        bool headlightsCommandPrevius = false;
+        
 };
 
 #endif

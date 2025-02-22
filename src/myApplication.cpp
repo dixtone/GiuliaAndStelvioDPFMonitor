@@ -32,6 +32,7 @@ void myApplication::Init(){
     
 
     display.Init();
+    
     delay(1000);
     display.SetPage(DwinPage::PAGE_LOADING);
     utils.InitFS();
@@ -41,7 +42,7 @@ void myApplication::Init(){
     buzzer.tone(500, 10, 50, 1); 
     
     delay(3000);
-
+    
     utils.readSettings();
 
     utils.readOilValues();
@@ -58,6 +59,7 @@ void myApplication::Init(){
     //lister for these messages Id (without querying them)
     obd2.addBroadcastFilter(0x226); //ECU for start & stop
     obd2.addBroadcastFilter(0x4B2); //ECU for oil pressure and other
+    obd2.addBroadcastFilter(0x545); //ECU for headlights and other
     
     //add some filters for canbus messages: they correspond to reverse header of OBD2Request
     obd2.addPacketFilter(0x18DAF1FA);
@@ -221,6 +223,15 @@ void myApplication::readOBD2Values(void * parameter){
           {
               app.handleOilPressure(&bp);
           } 
+          
+          //headlights command came in broadcast with packet id 545
+          //response is similar to: 68 20 c8 26 00 0b a0 00 -> Byte4 can be: 00 (off) or 80 (on)
+          if(bp.Header==0x545)
+          {
+              app.headlightsCommand = (bp.Byte4 == 0x80);
+             
+          } 
+
       //  Serial.printf("\n>> Broadcast packet %04x : %02x %02x %02x %02x %02x %02x %02x %02x\n", bp.Header, bp.Byte0, bp.Byte1, bp.Byte2, bp.Byte3, bp.Byte4, bp.Byte5, bp.Byte6, bp.Byte7);
       }
       #endif           
@@ -359,6 +370,16 @@ void myApplication::handleOilPressure(OBD2BroadcastPacket* p){
     app.OIL_PRESSURE = (float)((p->Byte0 & 0b00000001) << 7 | ((p->Byte1 >> 1) & 0b01111111))/10.0;   
 }
 
+//headlights are on, lower display brightness
+void myApplication::handleHeadlightsCommand(){
+    
+  if(app.headlightsCommand!=app.headlightsCommandPrevius)
+  {
+      app.headlightsCommandPrevius = app.headlightsCommand;
+      display.getHmi()->setBrightness(app.headlightsCommand?0x07:0x64);//0x00-0x64
+  }
+}
+
 void myApplication::checkStartAndStop(OBD2BroadcastPacket* p){
     //0xF1: ss ON  and indicator light OFF
     //0x05: ss OFF and indicator light ON
@@ -447,8 +468,11 @@ void myApplication::Loop(){
     
     btUtils.Loop();
     
-    #if CANBUS_DIRECT && DISABLE_STARTSTOP
-    disableStartAndStop();
+    #if CANBUS_DIRECT
+      #if DISABLE_STARTSTOP
+      disableStartAndStop();
+      #endif
+      handleHeadlightsCommand();
     #endif
 
     delay(10);
