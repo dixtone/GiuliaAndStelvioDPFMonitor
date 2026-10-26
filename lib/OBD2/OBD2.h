@@ -22,6 +22,8 @@
 
 //define maxbuffer lenght for response bytes
 #define OBD2_MAX_BUFFER_LENGTH 64
+#define OBD2_MAX_SW_FILTERS 32
+#define OBD2_MAX_BROADCAST_FILTERS 32
 
 //PID Struct
 struct OBD2Request {
@@ -38,6 +40,8 @@ struct OBD2Request {
   void (*ValueCallback)(String pid, uint8_t* responseBytes);
   long ReadInterval; 
   long ReadTime;
+  long ResponseHeader;
+  uint8_t ResponseNumBytes;
 };
 
 struct OBD2BroadcastPacket {
@@ -111,11 +115,11 @@ class OBD2: CANHandler
         int _crxPin;
         long _baudrate; 
         int _nfilters = 0; //max 10 sw filters    
-        int _maxfilters = 10; //max 10 sw filters      
-        long _filters[10]; //max 10 sw filters
-        int _nbroadcastfilters = 0; //max 10 sw filters    
-        int _maxbroadcastfilters = 10; //max 10 sw filters      
-        long _broadcastfilters[10]; //max 10 sw filters
+        int _maxfilters = OBD2_MAX_SW_FILTERS; //max sw filters      
+        long _filters[OBD2_MAX_SW_FILTERS]; //max 10 sw filters
+        int _nbroadcastfilters = 0; //max sw filters    
+        int _maxbroadcastfilters = OBD2_MAX_BROADCAST_FILTERS; //max sw filters      
+        long _broadcastfilters[OBD2_MAX_BROADCAST_FILTERS]; //max sw filters
         uint8_t _canbuffer[8];
         uint8_t _responseBytes[OBD2_MAX_BUFFER_LENGTH];
         bool _handleInterrupt = true;
@@ -130,6 +134,8 @@ class OBD2: CANHandler
         uint8_t _responseFrameBytes = 0;
         uint8_t _responseReadedBytes = 0;
         uint8_t _responseDataBytes = 0;
+        bool _requestExtendedPacket = false;
+        bool _longPid = false;
         OBD2BroadcastPacket _broadcastPacket = {0,0,0,0,0,0,0,0,0};
         void checkTimeoutRequest();
         void flushRequest();

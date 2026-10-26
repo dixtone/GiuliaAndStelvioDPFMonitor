@@ -49,4 +49,19 @@
 #define DISABLE_STARTSTOP false
 #endif
 
+//defining bluetooth ble connection
+#ifndef BLUETOOTH_BLE
+#define BLUETOOTH_BLE false
+#endif
+
+//gas engine
+#ifndef GAS_ENGINE
+#define GAS_ENGINE false
+#endif
+
+//oil log
+#ifndef DISABLE_OIL_LOG
+#define DISABLE_OIL_LOG false
+#endif
+
 #endif

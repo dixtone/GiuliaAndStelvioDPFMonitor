@@ -5,7 +5,6 @@
 
 extern OBD2 obd2;
 extern myApplication app;
-extern BluetoothSerial BluetoothConnector;
 extern myBtUtils btUtils;
 extern ESP32S3Buzzer buzzer;
 
@@ -40,19 +39,31 @@ void myUtils::readSettings(){
 
         vector<String> v;
         while (f.available()) {
+          //ensure length
+          if(ln>15)
+          {
+            break;
+          }
+
           v.push_back(f.readStringUntil('\n'));
+
+          ln++;
         }
         
         //ensure lines corresponding to settings we want
-        if (v.size() > 15)
+        if (v.size() > 15 || ln > 15)
         {
           f.close();
           DebugSerial("Settings Filesize not valid, removing...");
           SPIFFS.remove(SETTINGS_FILE);
         }
         else{
+
+            ln = 0;
             for (String buffer : v) 
             {
+              buffer.trim();
+              
               switch(ln)
               {
                   case 0:
@@ -157,8 +168,11 @@ void myUtils::resetFactory(){
   
   ResetFS();
   
+  #if CANBUS_DIRECT
+  #else
   btUtils.resetPairedDevice();
-
+  #endif
+  
   resetDevice();
 }
 
@@ -173,6 +187,17 @@ void myUtils::resetDevice(){
 }
 
 void myUtils::readOilValues(){
+
+  #if DISABLE_OIL_LOG
+    return;
+  #endif
+  
+  if(!_canReadOilValues)
+    return;
+  
+   _canWriteOilValues = false;
+
+  float lastOilLevel = 0.0;
 
   if (!SPIFFS.exists(GRAPH_OIL_FILE))
   {
@@ -196,18 +221,32 @@ void myUtils::readOilValues(){
     DebugSerial("Reading oil level...");
     vector<String> v;
     while (f.available()) {
+
+      //ensure length
+      if(ln>5)
+      {
+          break; 
+      } 
+
       v.push_back(f.readStringUntil('\n'));
+      ln++;
     }
+    
     //ensure lines corresponding to settings we want
-    if (v.size() > 5)
+    if (v.size() > 5 || ln > 5)
     {
       f.close();
       DebugSerial("Graph oil Filesize not valid, removing...");
       resetOilValues();
     }
     else{
+      
+      ln = 0;
       for (String buffer : v) 
       {
+        buffer.trim();
+        DebugSerial("Graph oil row buffer: "+buffer);
+
         value = buffer.substring(0, buffer.indexOf(" "));
         lev = value.toFloat();
         value = buffer.substring(buffer.indexOf(" ")+1);
@@ -215,24 +254,30 @@ void myUtils::readOilValues(){
         if(lev > 0.0)
         {
           app.oilLevels[ln] = { lev , value.toInt()};
-          app.lastOilLevel = lev;
+          lastOilLevel = lev;
         }         
-
         ln++;
       }
     }
   }
     
-  DebugSerial("Last oil level recorded: "+String(app.lastOilLevel));
+  DebugSerial("Last oil level recorded: "+String(lastOilLevel));
   
   f.close();
  
+  _canWriteOilValues = true;
 }
 
-void myUtils::writeOilValues(float previousLevel, float currentLevel){
+void myUtils::writeOilValues(float currentLevel){
 
-  if(currentLevel==0.0)
+  #if DISABLE_OIL_LOG
     return;
+  #endif
+
+  if(currentLevel==0.0 || !_canWriteOilValues)
+    return;
+
+  _canReadOilValues = false;
 
   short currentIndex=0;
   float lastValue = 0.0;
@@ -278,11 +323,21 @@ void myUtils::writeOilValues(float previousLevel, float currentLevel){
  
   f.close();
 
+  _canReadOilValues = true;
+
   //refresh values
   readOilValues();
 }
 
 void myUtils::resetOilValues(){
+  
+  #if DISABLE_OIL_LOG
+    return;
+  #endif
+
+  _canReadOilValues = false;
+  _canWriteOilValues = false;
+
   if (SPIFFS.exists(GRAPH_OIL_FILE))
   {
       SPIFFS.remove(GRAPH_OIL_FILE);      
@@ -292,12 +347,19 @@ void myUtils::resetOilValues(){
       app.oilLevels[i] = {0.0, 0};
   }
 
+  _canReadOilValues = true;
+  _canWriteOilValues = true;
+
   DebugSerial("Deleted oil log files");
 }
 
 void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
-                
-    if(PidName=="TURBO_BOOST_PRESSURE")
+            
+    if(PidName=="OIL_PRESSURE")
+    {           
+        app.OIL_PRESSURE = (float)((responseBytes[0] & 0b00000001) << 7 | ((responseBytes[1]>> 1) & 0b01111111))/10.0;   
+    }
+    else if(PidName=="TURBO_BOOST_PRESSURE")
     {   
         //atmo pressure 1009 mbar
         //boost pressure ((A*256)+B)-32767
@@ -368,7 +430,7 @@ void myUtils::elm327Setup(){
 }
 
 void myUtils::resetOBD2RequestValues(){
-  
+
   obd2.flush();
   
   for(int i=0;i<app.pidListSize;i++)

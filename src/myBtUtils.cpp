@@ -4,10 +4,16 @@
 #include "myDisplay.h"
 
 extern myApplication app;
-extern BluetoothSerial BluetoothConnector;
 extern myUtils utils;
 extern myDisplay display;
 extern OBD2 obd2;
+
+#if BLUETOOTH_BLE
+extern BLEsp32 BluetoothConnector;
+#else
+extern BluetoothSerial BluetoothConnector;
+#endif
+
 
 using namespace std;
 
@@ -16,6 +22,12 @@ void myBtUtils::reinitScan(){
 
     memset(_foundDevices, 0, sizeof(_foundDevices)); 
     memset(_availBtDevices, 0, sizeof(_availBtDevices)); 
+
+    #if BLUETOOTH_BLE
+    BluetoothConnector.BeginClient(btname.c_str());
+    #else
+    BluetoothConnector.begin(btname, true); //Bluetooth device name
+    #endif
 }
 
 void myBtUtils::beginScan(){
@@ -23,39 +35,38 @@ void myBtUtils::beginScan(){
     //resetting some vars
     app.CurrentStatus = AppStatus::BtScanning;
     
-    
-    /* 
-    //debug fake devices 
-    devicesN++;
-    foundDevices[devicesN] = "00:11:22:33";
-    availDevices[devicesN].name ="Bt Fake 1";
-    availDevices[devicesN].address = "00:11:22:33";
-    devicesN++;
-    foundDevices[devicesN] = "00:11:22:334";
-    availDevices[devicesN].name ="Bt Fake 2";
-    availDevices[devicesN].address = "00:11:22:33";
-    devicesN++;
-    foundDevices[devicesN] = "00:11:22:334";
-    availDevices[devicesN].name ="Bt Fake 3";
-    availDevices[devicesN].address = "00:11:22:33";
-    devicesN++;
-    foundDevices[devicesN] = "00:11:22:334";
-    availDevices[devicesN].name ="Bt Fake 4";
-    availDevices[devicesN].address = "00:11:22:33";
-    devicesN++;
-    //end debug fake devices
-    */
-
-    String btname = String(device_ssid)+String("BT-")+String((uint32_t)ESP.getEfuseMac(), HEX);
-
     //remove bounded devices on esp32
     clearBoundedDevices();
-     
-    BluetoothConnector.begin(btname, true); //Bluetooth device name
-    
     reinitScan();
 
-    elm327Init(false);
+    #if BLUETOOTH_BLE
+    
+    BluetoothConnector.ScanForDevices(20); 
+    int ndevices = BluetoothConnector.ScanResultCount();
+    if(ndevices>0)
+    {
+      BLEAdvertisedDevice* results = BluetoothConnector.GetScanResults();
+      for(int i=0;i<ndevices;i++)
+      {
+          auto advertisedDevice = results[i];
+          if(DEBUG_MODE)
+          {
+            Serial.print("Advertise device: ");
+            Serial.println(advertisedDevice.getAddress().toString().c_str());
+          }
+        
+        _devicesN++; 
+        _foundDevices[_devicesN] = String(advertisedDevice.getAddress().toString().c_str());
+
+        _availBtDevices[_devicesN].name =  advertisedDevice.haveName()?advertisedDevice.getName().c_str():"Unknow";
+        _availBtDevices[_devicesN].address =  _foundDevices[_devicesN];
+        _availBtDevices[_devicesN].rssi =  advertisedDevice.getRSSI();
+        _availBtDevices[_devicesN].channel =  utils.getSettings().bt_channel;       
+      }
+    }
+    #else
+    bluetoothClassicInit(false);
+    #endif
     
     // scroll through the results if we found paired, then connect
     if(!pairedDeviceStored.phantom)
@@ -76,7 +87,11 @@ void myBtUtils::beginScan(){
           //try to connect
           pairedDevice = pairedDeviceStored;
         
-          if(elm327Init(true))
+          #if BLUETOOTH_BLE
+          if(bluetoothBLEInit(true))
+          #else
+          if(bluetoothClassicInit(true))
+          #endif
           {
               app.displayHomePage();
               return;
@@ -84,7 +99,7 @@ void myBtUtils::beginScan(){
         }
       }
     }
-     
+
     //show list of paired devices
     app.CurrentStatus = AppStatus::BtScanComplete;
     utils.DebugSerial("List devices total: "+(String(_devicesN)));    
@@ -131,6 +146,31 @@ void myBtUtils::beginScan(){
   
 }
 
+#if BLUETOOTH_BLE
+bool myBtUtils::bluetoothBLEConnect(String address){
+
+    //scan about 3 seconds then connect if matches
+    BluetoothConnector.ScanForDevices(3); 
+    int ndevices = BluetoothConnector.ScanResultCount();
+    if(ndevices>0)
+    {
+      BLEAdvertisedDevice* results = BluetoothConnector.GetScanResults();
+      for(int i=0;i<ndevices;i++)
+      {
+          auto advertisedDevice = results[i];
+        
+          if(advertisedDevice.getAddress().toString().compare(address.c_str()) ==  0)
+          {
+            if(DEBUG_MODE) 
+              Serial.println("BLE Connect to "+address);
+            return BluetoothConnector.ConnectTo(&advertisedDevice);          
+          }
+      }
+    }
+    return false;
+}
+#endif
+
 void myBtUtils::connectPairedDevice(){
     if(pairBtDevice())
     {
@@ -167,7 +207,11 @@ bool myBtUtils::pairBtDevice(){
 
     display.getHmi()->setPage(DwinPage::PAGE_BT_CONNECT);
     
-    if(elm327Init(true))
+    #if BLUETOOTH_BLE
+    if(bluetoothBLEInit(true))
+    #else
+    if(bluetoothClassicInit(true))
+    #endif
     { 
         if(savePairedDevice())
         {
@@ -177,8 +221,7 @@ bool myBtUtils::pairBtDevice(){
         }
         else
         {
-          app.ELMInitialized = false;
-          
+          app.ELMInitialized = false;          
           pairedDevice = {};
           pairedDevice.phantom = true;
 
@@ -224,8 +267,12 @@ void myBtUtils::checkBootPairedDevice(){
 
         utils.DebugSerial("Found saved device: '" + pairedDeviceStored.address+"' "+String(pairedDeviceStored.phantom?"phantom":"real"));
 
-        if (elm327Init(true)) {
-
+        #if BLUETOOTH_BLE
+        if(bluetoothBLEInit(true))
+        #else
+        if(bluetoothClassicInit(true))
+        #endif        
+        {
             display.getHmi()->setPage(DwinPage::PAGE_BT_CONNECT_SUCCESS);
             delay(1000);
         }
@@ -248,6 +295,8 @@ bool myBtUtils::btAlreadyFound(String s){
   return false;  
 }
 
+#if BLUETOOTH_BLE
+#else
 void myBtUtils::btAdvertisedDeviceFound(BTAdvertisedDevice* device) {
 
   if (app.CurrentStatus==AppStatus::BtScanning)
@@ -273,11 +322,62 @@ void myBtUtils::btAdvertisedDeviceFound(BTAdvertisedDevice* device) {
      }
   }
 }
+#endif
 
-bool myBtUtils::elm327Init(bool realPairing){
+bool myBtUtils::bluetoothBLEInit(bool realPairing){
+  app.ELMInitialized = false;
 
-    app.ELMInitialized = false;
-    
+
+  #if BLUETOOTH_BLE
+    BluetoothConnector.BeginClient(btname.c_str());
+    if(realPairing)
+    {
+      utils.DebugSerial("Inizio bluetooth BLE su: "+pairedDevice.name+" "+pairedDevice.address);
+    }
+    else{
+      
+      utils.DebugSerial("Inizio bluetooth BLE su: FAKEDEVICEFORSCANNING012345");
+    }
+    clearBoundedDevices();
+    utils.resetOBD2RequestValues();
+    bool connectionResult =  bluetoothBLEConnect(pairedDevice.address);
+    utils.DebugSerial("Connection status: "+ String(connectionResult?"success":"failed")); 
+    if(connectionResult)
+    {
+       utils.DebugSerial("Connessione bluetooth avvenuta.");
+     
+       app.ELMInitialized = obd2.BeginElm327(BluetoothConnector, 2000);
+       
+       if(app.ELMInitialized)
+       {
+         utils.DebugSerial("elm327 inizializzato.");
+         utils.elm327Setup(); 
+         utils.resetOBD2RequestValues();
+       }
+       else{
+        //disconnect BLE
+        BluetoothConnector.Disconnect();
+        utils.DebugSerial("elm327 non inizializzato.");
+       }
+    }
+    else{
+
+      app.CurrentStatus = AppStatus::BtScanComplete;
+      utils.DebugSerial("Connessione bluetooth non avvenuta.");
+      delay(1000);
+    }    
+  #endif
+
+
+  return app.ELMInitialized;
+}
+
+bool myBtUtils::bluetoothClassicInit(bool realPairing){
+
+  app.ELMInitialized = false;
+
+  #if !BLUETOOTH_BLE
+
     if(realPairing)
     {
       utils.DebugSerial("Inizio bluetooth su: "+pairedDevice.name+" "+pairedDevice.address);
@@ -287,20 +387,11 @@ bool myBtUtils::elm327Init(bool realPairing){
       utils.DebugSerial("Inizio bluetooth su: FAKEDEVICEFORSCANNING012345");
     }
     
-    //BluetoothConnector.begin("SD4-DPF-MONITOR", true);
-    String btname = String(device_ssid)+String("BT-")+String((uint32_t)ESP.getEfuseMac(), HEX);
-
     clearBoundedDevices();
-    //BluetoothConnector.setPin("1234");
-
-    /*if(deviceSettings.bt_spp)
-    {
-      BluetoothConnector.enableSSP();
-    }*/
-   
-    BluetoothConnector.begin(btname, true); //Bluetooth device name
-          
+    
     utils.resetOBD2RequestValues();
+    
+    BluetoothConnector.begin(btname, true); //Bluetooth device name
          
     //convert bluetooth address ex. da 30:37:66:6b:87:94 to uint8t    
     uint8_t data[6];
@@ -349,7 +440,8 @@ bool myBtUtils::elm327Init(bool realPairing){
       utils.DebugSerial("Connessione bluetooth non avvenuta.");
       delay(1000);
     }    
-
+    #endif
+    
     return app.ELMInitialized;
 }
 
@@ -372,19 +464,27 @@ void myBtUtils::getPairedDevice(){
 
       vector<String> v;
       while (f.available()) {
+        //ensure length
+        if(ln > 3)
+        {
+          break;
+        }
         v.push_back(f.readStringUntil('\n'));
+        ln++;
       }
 
       //ensure lines corresponding to settings we want
-      if (v.size() > 3)
+      if (v.size() > 3 || ln > 3)
       {
         f.close();
         utils.DebugSerial("Paired device Filesize not valid, removing...");
         SPIFFS.remove(PAIRED_DEVICE_FILE);
       }
       else{
+        ln = 0;
         for (String buffer : v) 
         {
+          buffer.trim();
           switch(ln)
           {
             case 0:
@@ -503,12 +603,15 @@ bool myBtUtils::checkLostConnection(){
     
     if(CANBUS_DIRECT) return false;
    
-    if (!BluetoothConnector.hasClient() && !pairedDevice.phantom && app.CurrentStatus == AppStatus::Main)
-    {
-        utils.DebugSerial("Bluetooth has no client: Set app status to BtLost");
-        app.CurrentStatus = AppStatus::BtLost;
-       
-    }
+    #if BLUETOOTH_BLE
+      if (!BluetoothConnector.isConnected() && !pairedDevice.phantom && app.CurrentStatus == AppStatus::Main)
+    #else
+      if (!BluetoothConnector.hasClient() && !pairedDevice.phantom && app.CurrentStatus == AppStatus::Main)
+     #endif
+      {
+          utils.DebugSerial("Bluetooth has no client: Set app status to BtLost");
+          app.CurrentStatus = AppStatus::BtLost;        
+      }    
 
     return false;
 }
@@ -547,7 +650,11 @@ void myBtUtils::Loop(){
                   utils.DebugSerial("Connessione persa: tentativo di riconnessione "+String(_lostConnectionAttempts));
 
                   //if reinit, we are ok!
-                  if (elm327Init(true))
+                  #if BLUETOOTH_BLE
+                  if (bluetoothBLEInit(true))
+                  #else
+                  if (bluetoothClassicInit(true))
+                  #endif
                   {
                       app.ElmIsLost = false;
                       _lostConnectionAttempts = -1;

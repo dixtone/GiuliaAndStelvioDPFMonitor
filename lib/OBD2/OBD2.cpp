@@ -46,6 +46,13 @@ void OBD2::Begin(int ctxPin, int crxPin, long baudrate){
 
 void OBD2::addBroadcastFilter(long filter){
 
+  //check if filters is present
+  for(int i=0;i<_maxbroadcastfilters;i++)
+  {
+    if(_broadcastfilters[i] == filter)
+      return;
+  }
+
   if(_nbroadcastfilters < _maxbroadcastfilters)
   {
     _broadcastfilters[_nbroadcastfilters] = filter;
@@ -61,6 +68,13 @@ void OBD2::addBroadcastFilter(long filter){
 }
 void OBD2::addPacketFilter(long filter){
 
+  //check if filters is present
+  for(int i=0;i<_maxfilters;i++)
+  {
+    if(_filters[i] == filter)
+      return;
+  }
+
   if(_nfilters < _maxfilters)
   {
     _filters[_nfilters] = filter;
@@ -72,7 +86,6 @@ void OBD2::addPacketFilter(long filter){
       Serial.println(filter, HEX);
     } 
   }
-  
 }
 
 
@@ -107,19 +120,28 @@ bool OBD2::sendRequest(OBD2Request* request){
     _requestPid = _currentRequest->Pid;
     _responseReadedBytes = 0;
     _responseFrameBytes = 0;
+    _requestExtendedPacket = _currentRequest->Header > 0x18000000;
+    _longPid = _currentRequest->Pid > 0xFF;
 
-    //29bit request 
-    if(_currentRequest->Pid > 0xFF)
-    {
+    if(_requestExtendedPacket)
+    { //29bit request 
       CAN.beginExtendedPacket(_currentRequest->Header, 8);
+    }
+    else{
+      //11bit request 
+      CAN.beginPacket(_currentRequest->Header, 8);
+    }
+
+    
+    if(_longPid)
+    { 
       CAN.write(0x03); // number of additional bytes
       CAN.write(_currentRequest->Service); //service 
       CAN.write(_currentRequest->Pid>>8); //if 1003 then 10
       CAN.write(_currentRequest->Pid & 0x00ff); //if 1003 then 03   
       CAN.endPacket();
     }
-    else{
-      CAN.beginPacket(_currentRequest->Header, 8);
+    else{      
       CAN.write(0x02); // number of additional bytes
       CAN.write(_currentRequest->Service);
       CAN.write(_currentRequest->Pid); //if 1003 then 10
@@ -177,6 +199,8 @@ OBD2StatusType OBD2::process(){
   }
   else if(status==OBD2StatusType::received){
 
+      _currentRequest->ResponseHeader = _responsePacketId;
+      _currentRequest->ResponseNumBytes = _responseDataBytes;
       callListener(_currentRequest, getValue(_currentRequest), _responseBytes);
       
       flushRequest();
@@ -380,7 +404,7 @@ void OBD2::handleBroadcastPackets(long packetId){
 void OBD2::onReceivePacket(int packetSize){
 
    _responsePacketId = CAN.packetId();
-
+   
   //check if we have listen filters
   if(_nbroadcastfilters > 0)    
   {
@@ -398,12 +422,12 @@ void OBD2::onReceivePacket(int packetSize){
     if(!accepted) return;   
   }
 
+  //Serial.printf("\nOBD2 Received %2x\n", _responsePacketId);
+
   flushBuffer();
 
   if(OBD2_DEBUG)
   {
-      Serial.println("Received ");
-
    /*   if (CAN.packetExtended()) {
         Serial.print("extended ");
       }
@@ -436,12 +460,15 @@ void OBD2::onReceivePacket(int packetSize){
       _responseMultiFrames = false;
       
       int index, dataindex = 0;
-
+      //Serial.println(" ");
       while (CAN.available()) {
         _canbuffer[index] = CAN.read();
+        //Serial.print(_canbuffer[index], HEX);
+        //Serial.print(" ");
         index++;
       }
-      
+      //Serial.print("\n");
+
       //multiframe response example: 10 0B 6240A4020103  
       if(_canbuffer[0] > 8) //example: 0x10, 0x21 - 0x2F
       {
@@ -477,13 +504,16 @@ void OBD2::onReceivePacket(int packetSize){
       //single frame example: 046240A45F 
       else{ //single response
      
+       // Serial.printf("\nCan buffer %02x %02x %02x %02x %02x %02x %02x %02x\n", _canbuffer[0], _canbuffer[1], _canbuffer[2], _canbuffer[3], _canbuffer[4], _canbuffer[5], _canbuffer[6], _canbuffer[7]);
+
         dataindex = 0;
         _responseDataBytes = 0;
         _responseReadedBytes = 1;
         _responsePCI = 0;
         _responseFrameBytes = _canbuffer[0];     
         _responseService = _canbuffer[1]-0x40;  //_responseService xor 40 return original service request
-        if(CAN.packetExtended())
+        
+        if(_longPid)
         {
           _responsePid = (_canbuffer[2]<<8)|(_canbuffer[3]);
           _responseReadedBytes+=2;  
@@ -495,7 +525,7 @@ void OBD2::onReceivePacket(int packetSize){
           dataindex = 3;
         } 
        
-        //Serial.printf("\nCan buffer s:%02x pid:%04x size %d: %02x %02x %02x %02x %02x %02x %02x %02x",_responseService, _responsePid,  packetSize,  _canbuffer[0], _canbuffer[1], _canbuffer[2], _canbuffer[3], _canbuffer[4], _canbuffer[5], _canbuffer[6], _canbuffer[7]);
+       // Serial.printf("\nCan buffer s:%02x pid:%04x size %d: %02x %02x %02x %02x %02x %02x %02x %02x\n",_responseService, _responsePid,  packetSize,  _canbuffer[0], _canbuffer[1], _canbuffer[2], _canbuffer[3], _canbuffer[4], _canbuffer[5], _canbuffer[6], _canbuffer[7]);
        
         flushResponseBytes(); 
       }      
@@ -533,7 +563,7 @@ bool OBD2::initializeELM(){
 
   bool c2 = sendElmCommandBlocking("AT Z");
 	delay(100);
-  
+
   return c1&&c2;
 }
 
@@ -588,8 +618,10 @@ void OBD2::sendElmCommand(String cmd){
   {
     _elmPort->read();
   }
-    
+  
   status = OBD2StatusType::sending;
+  
+  cmd+="\r";
 
   if(OBD2_DEBUG)
     Serial.println("Sending: "+cmd);
@@ -599,8 +631,8 @@ void OBD2::sendElmCommand(String cmd){
   _currentRequest = nullptr;
   _responseReadedBytes = 0;
   _elmBuffer = "";
-  _elmPort->print(cmd);
-  _elmPort->print('\r');
+  _elmPort->flush();
+  _elmPort->write(cmd.c_str(), cmd.length());
   _sendRequestTime = millis();    
   status=OBD2StatusType::hadling;
 }
@@ -619,8 +651,9 @@ bool OBD2::getElmResponse(){
     checkTimeoutRequest();
   }
   else{
-
+     
       char recChar = _elmPort->read();
+     
       if (recChar == '>')
       {
           if(OBD2_DEBUG)
@@ -829,16 +862,16 @@ bool OBD2::sendElmRequest(OBD2Request* request){
       query[3] = ((_requestPid >> 8) & 0xF) + '0';
       query[4] = ((_requestPid >> 4) & 0xF) + '0';
       query[5] = (_requestPid & 0xF) + '0';
-      query[6] = request->ExpectedBytes + '0';
-      query[7] = '\0';
+    //  query[6] = request->ExpectedBytes + '0';
+      query[6] = '\0';
 
       upper(query, 6);
     }
     else{
       query[2] = ((_requestPid >> 4) & 0xF) + '0';
       query[3] = (_requestPid & 0xF) + '0';
-      query[4] = request->ExpectedBytes + '0';
-      query[5] = '\0';
+    //  query[4] = request->ExpectedBytes + '0';
+      query[4] = '\0';
 
       upper(query, 4);
     }

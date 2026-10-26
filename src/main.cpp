@@ -32,7 +32,11 @@
 #include "myBtUtils.h"
 
 //app definitions
+#if BLUETOOTH_BLE
+BLEsp32 BluetoothConnector;
+#else
 BluetoothSerial BluetoothConnector;
+#endif
 
 ESP32S3Buzzer buzzer(BUZZER_PIN, BUZZER_CHN);
 
@@ -47,6 +51,7 @@ myDisplay display(&hmi);
 myApplication app;
 
 TaskHandle_t asyncTask;
+TaskHandle_t asyncTask2;
 
 //main
 void setup() {
