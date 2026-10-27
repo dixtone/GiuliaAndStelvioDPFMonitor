@@ -50,6 +50,7 @@ void myDisplay::InitDisplayVariables()
   _hmi->setVPInt(DwinAddress::SETTING_CARVALUE_VALUE, settings.car_model);
 
   //valori dashboard
+  _lastUpdateMillis = 0; //force refresh
   UpdateDisplayVariables();
 }
 
@@ -61,9 +62,16 @@ void myDisplay::UpdateDisplayVariables(){
 
     app.checkAlarms();
 
-    DeviceSettings settings = utils.getSettings();
+    //limit serial traffic to display
+    if(_lastUpdateMillis && millis()-_lastUpdateMillis < _updateInterval){
+        return;
+    }
+    _lastUpdateMillis = millis();
 
-    if(app.CurrentPidGroup=="MAIN_PIDS")
+    const DeviceSettings& settings = utils.getSettings();
+    String currentPidGroup = app.getCurrentPidGroup();
+
+    if(currentPidGroup=="MAIN_PIDS")
     {
         _hmi->setVP(DwinAddress::DASH_ICO_BATT, (app.IBS_CHARGE_LEVEL<65.0 || app.BATTERY_OEM<12.0)?0:(app.BATTERY_OEM<12.6)?1:2);
         _hmi->setVPFloat(DwinAddress::DASH_TXT_BATT, app.BATTERY_OEM);   
@@ -113,7 +121,7 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_TXT_REGEN_PROCESS, (int)app.DPF_REGENERATION_PROCESS);
         #endif
     }
-    else if(app.CurrentPidGroup=="ENG_PIDS")
+    else if(currentPidGroup=="ENG_PIDS")
     {
         //page engine
         #if GAS_ENGINE
@@ -128,7 +136,7 @@ void myDisplay::UpdateDisplayVariables(){
         #endif
         _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE, (int)app.OVER_ENG_VALVE);
     }
-    else if(app.CurrentPidGroup=="REMOTEKEY_PIDS")
+    else if(currentPidGroup=="REMOTEKEY_PIDS")
     {
         //page key e remotes
         _hmi->setVPInt(DwinAddress::DASH_VAL_NKEYS, (int)app.KEY_NUMBER);
@@ -136,7 +144,7 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_VAL_NREMOTE, (int)app.REMOTE_NUMBER);
         _hmi->setVPInt(DwinAddress::DASH_VAL_LASTREMOTE, (int)app.REMOTE_LAST);
     }
-    else if(app.CurrentPidGroup=="SERVICE_PIDS")
+    else if(currentPidGroup=="SERVICE_PIDS")
     {
         //page oil service
         _hmi->setVPInt(DwinAddress::DASH_TXT_OIL, (int)app.OIL_DEGRADATION);
@@ -147,7 +155,7 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setText(DwinAddress::DASH_VAL_OIL_DATE, app.LAST_SERVICE_DATE, 14);
         //drawOilGraphValues();
     }
-    else if(app.CurrentPidGroup=="BATTERY_PIDS")
+    else if(currentPidGroup=="BATTERY_PIDS")
     {
         //battery values
         _hmi->setVPInt(DwinAddress::DASH_VAL_BAT_TEMP, (int)app.BATTERY_TEMP);
@@ -155,14 +163,14 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_TXT_IBS, (int)app.IBS_CHARGE_LEVEL);
         _hmi->setVPFloat(DwinAddress::DASH_TXT_BATT, app.BATTERY_OEM);   
     }
-    else if(app.CurrentPidGroup=="GAS_PIDS")
+    else if(currentPidGroup=="GAS_PIDS")
     {
         //gasoil values
         _hmi->setVPInt(DwinAddress::DASH_VAL_GAS_TEMP, (int)app.GAS_TEMP);
         _hmi->setVPFloat(DwinAddress::DASH_VAL_GAS_PRESS, app.GAS_PRESSURE);
         _hmi->setText(DwinAddress::DASH_VAL_GAS_H2O, (int)app.GAS_H2O>0?"SI":"No", 2);
     }
-    else if(app.CurrentPidGroup=="TIRES_PIDS")
+    else if(currentPidGroup=="TIRES_PIDS")
     {
         //tires values
         _hmi->setVPFloat(DwinAddress::DASH_VAL_P_ASX, app.P_ASX);
@@ -268,7 +276,7 @@ void myDisplay::drawOilGraphValues(){
         // line for zero values
         _hmi->setText(addr_level[i], String(""), 6);
         _hmi->setText(addr_distance[i], String(""), 6); 
-        coordinates[i].y = coordinates[i-1].y;  
+        coordinates[i].y = i>0 ? coordinates[i-1].y : GRAPH_Y_MIN;
         coordinates[i].color = GRAPH_COLOR;
         coordinates[i].w = 0;
         coordinates[i].h = 0;

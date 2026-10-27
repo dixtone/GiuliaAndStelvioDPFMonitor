@@ -1,5 +1,5 @@
 //main libraies
-#include <Math.h>
+#include <math.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <SPIFFS.h>

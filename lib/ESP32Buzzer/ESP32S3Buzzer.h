@@ -3,6 +3,7 @@
 
 #include "Arduino.h"
 #include <queue>
+#include <mutex>
 
 class ESP32S3Buzzer {
 public:
@@ -25,6 +26,7 @@ private:
   };
 
   std::queue<Tone> _toneQueue;
+  std::mutex _queueMutex; //tone() and update() can be called from different tasks
   bool _isPlaying;
   uint32_t _startTime;
   uint32_t _currentDuration;

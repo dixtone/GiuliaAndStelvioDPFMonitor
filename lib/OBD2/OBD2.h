@@ -145,10 +145,10 @@ class OBD2: CANHandler
         void handleBroadcastPackets(long packetId);
         void flowControl(long packetId);
         void (*onReceiveCallback)();
-        IOBD2MessageListener* _valueListener;
-        void (*_callBackFunction)(OBD2Request* request, float value, uint8_t* responseBytes);
+        IOBD2MessageListener* _valueListener = nullptr;
+        void (*_callBackFunction)(OBD2Request* request, float value, uint8_t* responseBytes) = nullptr;
         void callListener(OBD2Request* request, float value, uint8_t* responseBytes);
-        OBD2Request* _currentRequest; 
+        OBD2Request* _currentRequest = nullptr;
 
         //elm integration
         bool _isElm = false;
@@ -156,7 +156,7 @@ class OBD2: CANHandler
         long _elmTimeout = 1000;
         String _elmBuffer;
         uint8_t _responseElmBytes[OBD2_MAX_BUFFER_LENGTH];
-        Stream* _elmPort;
+        Stream* _elmPort = nullptr;
         bool initializeELM();
         bool getElmResponse();
         bool sendElmRequest(OBD2Request* request);

@@ -97,15 +97,22 @@ class myApplication: public LoopableClass, public IOBD2MessageListener
         bool clogAlarm = false;
         bool regenAlarm = false;
         bool regenerationInProgress = false;
-        short pidIndex;
+        short pidIndex = 0;
         bool ELMInitialized = false;
-        
+
         OilLog oilLevels[MAX_OIL_LOG] = {{0.0, 0}, {0.0, 0}, {0.0, 0}, {0.0, 0}, {0.0, 0}};
         bool updatedOilGraphValues = false;
-        
+
+        //shared OBD state (pidList, CurrentPidGroup, obd2) is used by loop() and readOBD2Values task
+        void lockOBD();
+        void unlockOBD();
+        String getCurrentPidGroup(); //thread safe copy of CurrentPidGroup
+
         private:
-        
+
             bool _isInitialized = false;
+            SemaphoreHandle_t _obdMutex = nullptr;
+            OBD2Request* nextDueRequest();
                 
             long _loopmillis = 0;
             bool _prevregenerationInProgress = false;

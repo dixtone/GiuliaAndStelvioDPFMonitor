@@ -87,7 +87,7 @@ private:
     long _baud;              // DWIN HMI Baud rate
     uint8_t _rxPin;
     uint8_t _txPin;
-    bool _echo;            // Response Command Show
+    bool _echo = false;    // Response Command Show
     bool _returnResponseEnabled;  //Expected return response
     bool _isConnected;     // Flag set on successful communication
     byte _longBuffer[1024]; //buffer where we save multiple data messages
@@ -96,18 +96,20 @@ private:
     bool cbfunc_valid;
     int _readTimeout;
     int _cmdTimeout;
-    int _width;
-    int _height;
-    int _rotation;
-    
-    hmiListener _listenerCallback;
-    IDWINHandler* _listenerInstance;    
+    int _width = -1;    //-1 = not read yet
+    int _height = -1;
+    int _rotation = -1;
 
-    void init(Stream* port); 
+    hmiListener _listenerCallback = nullptr;
+    IDWINHandler* _listenerInstance = nullptr;
+
+    void init(Stream* port);
     byte readCMDLastByte();
-    String handle();
+    String handle(bool dispatchEvents = true);
     String checkHex(byte currentNo);
     String writeDWIN(const uint8_t* buffer, size_t size);
+    String query(const uint8_t* buffer, size_t size);
+    byte lastResponseByte(String response);
     void flushSerial();    
 };
 

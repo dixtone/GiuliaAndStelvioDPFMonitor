@@ -17,10 +17,12 @@ void ESP32S3Buzzer::end() {
 
 void ESP32S3Buzzer::tone(uint32_t freq, uint32_t onDuration, uint32_t offDuration, uint16_t cycles) {
   Tone newTone = {freq, onDuration, offDuration, cycles};
+  std::lock_guard<std::mutex> lock(_queueMutex);
   _toneQueue.push(newTone);
 }
 
 void ESP32S3Buzzer::update() {
+  std::lock_guard<std::mutex> lock(_queueMutex);
   if (_isPlaying) {
     if (millis() - _startTime >= _currentDuration) {
       if (_isToneOn) {

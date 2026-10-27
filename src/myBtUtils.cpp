@@ -20,8 +20,12 @@ using namespace std;
 void myBtUtils::reinitScan(){
     _devicesN = -1;
 
-    memset(_foundDevices, 0, sizeof(_foundDevices)); 
-    memset(_availBtDevices, 0, sizeof(_availBtDevices)); 
+    //no memset: String members own heap memory
+    for(short i=0;i<MAX_BT_DEVICES;i++)
+    {
+      _foundDevices[i] = String();
+      _availBtDevices[i] = BtItem();
+    }
 
     #if BLUETOOTH_BLE
     BluetoothConnector.BeginClient(btname.c_str());
@@ -46,7 +50,8 @@ void myBtUtils::beginScan(){
     if(ndevices>0)
     {
       BLEAdvertisedDevice* results = BluetoothConnector.GetScanResults();
-      for(int i=0;i<ndevices;i++)
+      //only MAX_BT_DEVICES can be listed
+      for(int i=0;i<ndevices && _devicesN<(MAX_BT_DEVICES-1);i++)
       {
           auto advertisedDevice = results[i];
           if(DEBUG_MODE)
@@ -394,8 +399,8 @@ bool myBtUtils::bluetoothClassicInit(bool realPairing){
     BluetoothConnector.begin(btname, true); //Bluetooth device name
          
     //convert bluetooth address ex. da 30:37:66:6b:87:94 to uint8t    
-    uint8_t data[6];
-    sscanf(pairedDevice.address.c_str(), "%x:%x:%x:%x:%x:%x", &data[0], &data[1], &data[2], &data[3], &data[4], &data[5]);
+    uint8_t data[6] = {0};
+    sscanf(pairedDevice.address.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &data[0], &data[1], &data[2], &data[3], &data[4], &data[5]);
     uint8_t address[6] = { data[0], data[1], data[2], data[3], data[4], data[5]};
 
     //debugSerial("pair with "+pairedDevice.address); 
@@ -554,20 +559,22 @@ void myBtUtils::clearBoundedDevices(){
       return;
     }
   
-    if(esp_bluedroid_init() != ESP_OK) {
+    //bluedroid can be already initialized/enabled (BluetoothSerial.begin or previous call)
+    if(esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_UNINITIALIZED && esp_bluedroid_init() != ESP_OK) {
       utils.DebugSerial("Failed to initialize bluedroid");
       return;
     }
-  
-    if(esp_bluedroid_enable() != ESP_OK) {
+
+    if(esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED && esp_bluedroid_enable() != ESP_OK) {
       utils.DebugSerial("Failed to enable bluedroid");
       return;
     }
-  
-    int count = esp_bt_gap_get_bond_device_num();
-    
+
     uint8_t pairedDeviceBtAddr[20][6];
-    char bda_str[18];
+    char bda_str[18] = "";
+
+    //count is in/out: max devices the buffer can hold
+    int count = min(esp_bt_gap_get_bond_device_num(), 20);
 
     esp_err_t tError =  esp_bt_gap_get_bond_device_list(&count, pairedDeviceBtAddr);
     

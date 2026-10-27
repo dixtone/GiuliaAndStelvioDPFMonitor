@@ -33,7 +33,6 @@ void myUtils::readSettings(){
 
  if (SPIFFS.exists(SETTINGS_FILE)) {
     File f = SPIFFS.open(SETTINGS_FILE, "r");
-    char buffer[64];
     if (f) {
         int ln = 0;
 
@@ -295,7 +294,10 @@ void myUtils::writeOilValues(float currentLevel){
   }
 
   if(currentLevel==lastValue)
+  {
+    _canReadOilValues = true;
     return;
+  }
 
   app.updatedOilGraphValues = false;
   DebugSerial("Oil Level variation detected: "+String(currentLevel)+" "+String(lastValue));
@@ -363,7 +365,9 @@ void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
     {   
         //atmo pressure 1009 mbar
         //boost pressure ((A*256)+B)-32767
-        app.TURBO_BOOST_PRESSURE = ((responseBytes[0]*256 + responseBytes[1])-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009);
+        int raw = responseBytes[0]*256 + responseBytes[1];
+        //raw 0 means no data (reset or timeout), not a negative pressure
+        app.TURBO_BOOST_PRESSURE = raw>0 ? (raw-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009) : 0.0;
     }
     else if(PidName=="KEY_NUMBER_AND_LAST")
     {
@@ -376,7 +380,10 @@ void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
         app.REMOTE_LAST = responseBytes[1];
     } 
     else if(PidName=="LAST_SERVICE_DATE"){
-        app.LAST_SERVICE_DATE = String(responseBytes[3],HEX)+"/"+ String(responseBytes[2],HEX)+"/"+String(responseBytes[0],HEX)+String(responseBytes[1],HEX);
+        //BCD date, ex. 20 24 02 08 => 08/02/2024
+        char date[11];
+        snprintf(date, sizeof(date), "%02X/%02X/%02X%02X", responseBytes[3], responseBytes[2], responseBytes[0], responseBytes[1]);
+        app.LAST_SERVICE_DATE = String(date);
     }
     else if(PidName=="BATTERY_TEMP_AMP"){
         app.BATTERY_TEMP = responseBytes[6]>0?responseBytes[6]-40:0;
@@ -431,12 +438,16 @@ void myUtils::elm327Setup(){
 
 void myUtils::resetOBD2RequestValues(){
 
+  app.lockOBD();
+
   obd2.flush();
-  
+
   for(int i=0;i<app.pidListSize;i++)
   {
     *app.pidList[i].BindValue = 0.0;
      app.pidList[i].ReadTime = 0;
      app.pidList[i].ValueCallback(app.pidList[i].Name, obd2.getResponseBytes());  //not needed
   }
+
+  app.unlockOBD();
 }

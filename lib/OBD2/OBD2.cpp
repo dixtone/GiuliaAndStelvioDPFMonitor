@@ -6,7 +6,7 @@
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
 
-#include "Can.h"
+#include "CAN.h"
 #include "OBD2.h"
 
 using namespace std;
@@ -28,9 +28,10 @@ void OBD2::Begin(int ctxPin, int crxPin, long baudrate){
 
     if (!CAN.begin(baudrate)) { // 1000E3 500E3
 
-    if(OBD2_DEBUG)
+      if(OBD2_DEBUG)
         Serial.println("[KO]"); 
-        while (1);
+
+      while (1);
     }
 
     if(_handleInterrupt)
@@ -199,9 +200,13 @@ OBD2StatusType OBD2::process(){
   }
   else if(status==OBD2StatusType::received){
 
-      _currentRequest->ResponseHeader = _responsePacketId;
-      _currentRequest->ResponseNumBytes = _responseDataBytes;
-      callListener(_currentRequest, getValue(_currentRequest), _responseBytes);
+      //request could be flushed meanwhile
+      if(_currentRequest!=nullptr)
+      {
+        _currentRequest->ResponseHeader = _responsePacketId;
+        _currentRequest->ResponseNumBytes = _responseDataBytes;
+        callListener(_currentRequest, getValue(_currentRequest), _responseBytes);
+      }
       
       flushRequest();
       status = OBD2StatusType::ready;
@@ -253,14 +258,15 @@ float OBD2::getValue(OBD2Request* request){
        | (n-3)>=0?(_responseBytes[3]<<(8*(n-3))):0
     );*/
 
-    float v = 0.00;
-    uint8_t bitShift;
+    //unsigned to avoid sign overflow with 4 bytes values
+    uint32_t raw = 0;
 
-    for (uint8_t i = 0; i < request->ExpectedBytes; i++)
+    for (uint8_t i = 0; i < request->ExpectedBytes && i < 4; i++)
     {
-        bitShift = 8 * (request->ExpectedBytes - i - 1);
-        v = v + ((_responseBytes[i]) << bitShift);
+        raw = (raw << 8) | _responseBytes[i];
     }
+
+    float v = (float)raw;
 
     return v>0.00?(v*request->ScaleFactor + request->AdjustFactor):0.00; 
 }
@@ -384,7 +390,7 @@ void OBD2::handleBroadcastPackets(long packetId){
   int index = 0;
   //edit: no DLC!
   //if(CAN.available()) CAN.read(); //read first byte DLC
-  while (CAN.available()) {
+  while (CAN.available() && index < 8) {
     _canbuffer[index] = CAN.read();
     index++;
   }
@@ -403,24 +409,26 @@ void OBD2::handleBroadcastPackets(long packetId){
 //called on interrupt internal callback to process raw data
 void OBD2::onReceivePacket(int packetSize){
 
-   _responsePacketId = CAN.packetId();
-   
+  long packetId = CAN.packetId();
+
   //check if we have listen filters
-  if(_nbroadcastfilters > 0)    
+  if(_nbroadcastfilters > 0)
   {
-     bool listen = find(_broadcastfilters, _broadcastfilters+_nbroadcastfilters, _responsePacketId) != ( _broadcastfilters+_nbroadcastfilters);
+     bool listen = find(_broadcastfilters, _broadcastfilters+_nbroadcastfilters, packetId) != ( _broadcastfilters+_nbroadcastfilters);
      if(listen)
      {
-       return handleBroadcastPackets(_responsePacketId);
+       return handleBroadcastPackets(packetId);
      }
-  }   
+  }
 
   //if we have filters, we have to check if packet is included
   if(_nfilters > 0)
-  { 
-    bool accepted = find(_filters, _filters+_nfilters, _responsePacketId) != ( _filters+_nfilters);  
-    if(!accepted) return;   
+  {
+    bool accepted = find(_filters, _filters+_nfilters, packetId) != ( _filters+_nfilters);
+    if(!accepted) return;
   }
+
+  _responsePacketId = packetId;
 
   //Serial.printf("\nOBD2 Received %2x\n", _responsePacketId);
 
@@ -459,9 +467,9 @@ void OBD2::onReceivePacket(int packetSize){
     {
       _responseMultiFrames = false;
       
-      int index, dataindex = 0;
+      int index = 0, dataindex = 0;
       //Serial.println(" ");
-      while (CAN.available()) {
+      while (CAN.available() && index < 8) {
         _canbuffer[index] = CAN.read();
         //Serial.print(_canbuffer[index], HEX);
         //Serial.print(" ");
@@ -484,7 +492,7 @@ void OBD2::onReceivePacket(int packetSize){
            _responseService = _canbuffer[2]-0x40;   //_responseService xor 40 return original service request
            _responseReadedBytes = 1;
           
-           if(CAN.packetExtended())
+           if(_longPid)
            {
               _responsePid = (_canbuffer[3]<<8)|(_canbuffer[4]);
               _responseReadedBytes+=2;  
@@ -530,7 +538,7 @@ void OBD2::onReceivePacket(int packetSize){
         flushResponseBytes(); 
       }      
       
-      for(int d=dataindex;d<packetSize;d++)
+      for(int d=dataindex;d<packetSize && d<8 && _responseDataBytes<OBD2_MAX_BUFFER_LENGTH;d++)
       {
         _responseBytes[_responseDataBytes] = _canbuffer[d];
         _responseDataBytes++;
@@ -723,7 +731,7 @@ bool OBD2::getElmResponse(){
 
 void OBD2::decodeElmResponse(){
 
-  char byte[2];
+  char byte[3] = {0};
   _responseReadedBytes = 0;
   _responseFrameBytes = 0;
   _responseMultiFrames = false;
@@ -772,12 +780,11 @@ void OBD2::decodeElmResponse(){
       }
 
       //convert response string to hexbytes
-      for(int i=0;i<_elmBuffer.length();i++){
-        strcpy(byte, String(_elmBuffer[i]).c_str());
-        strcat(byte, String(_elmBuffer[i+1]).c_str());
+      for(int i=0;i+1<_elmBuffer.length() && _responseReadedBytes<OBD2_MAX_BUFFER_LENGTH;i+=2){
+        byte[0] = _elmBuffer[i];
+        byte[1] = _elmBuffer[i+1];
         _responseElmBytes[_responseReadedBytes] = strtol(byte, NULL, 16);
         _responseReadedBytes++;
-        i++;
       }
 
       //check if match request
@@ -803,7 +810,7 @@ void OBD2::decodeElmResponse(){
            // Serial.printf("\nResponse service: %2x Response Pid: %4x \n\nBYTES: ", _responseService, _responsePid);
             
             _responseDataBytes = 0;           
-            for(int i= _responseReadedBytes;i<_responseFrameBytes;i++){
+            for(int i= _responseReadedBytes;i<_responseFrameBytes && i<OBD2_MAX_BUFFER_LENGTH;i++){
               _responseBytes[_responseDataBytes] = _responseElmBytes[i];
               //Serial.print(_responseBytes[_responseDataBytes], HEX);
               //Serial.print(" ");
