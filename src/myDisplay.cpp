@@ -451,7 +451,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
       break;
       
       case DwinAddress::SETTING_ALARM_REPEAT:
-        utils.getSettings().alarm_interval = message;
+        utils.getSettings().alarm_interval = max(message, ALARM_MIN_INTERVAL);
       break; 
     
      case DwinAddress::SETTING_READ_TIMEOUT_VALUE:

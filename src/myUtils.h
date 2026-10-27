@@ -30,10 +30,12 @@ class myUtils{
         static void NullCb(String PidName, uint8_t* responseBytes){};
         static void CustomBytesValues(String PidName, uint8_t* responseBytes);
 
-        
+        //safe write: data is written on tmp file, then it replaces the real file
+        void commitTmpFile(const char* tmpFile, const char* file);
+        void recoverTmpFile(const char* tmpFile, const char* file);
 
-    private:    
-       
+    private:
+
         //default settings values
         DeviceSettings _deviceSettings = {1, 1, 0, 1, 98, 398, 500, 30, 1, 1, "",1,200, 3, 0};
         OilLog _oilValues[5] = {{0.0, 100}, {0.0, 200}, {0.0, 300}, {0.0, 400}, {0.0, 500}};

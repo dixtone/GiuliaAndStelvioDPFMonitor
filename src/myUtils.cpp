@@ -26,10 +26,34 @@ void myUtils::InitFS(){
 }
 
 void myUtils::ResetFS(){
-    SPIFFS.format();    
+    SPIFFS.format();
+}
+
+//tmp file is complete and closed: replace real file with it
+void myUtils::commitTmpFile(const char* tmpFile, const char* file){
+    SPIFFS.remove(file);
+    SPIFFS.rename(tmpFile, file);
+}
+
+//call before reading a safe written file
+void myUtils::recoverTmpFile(const char* tmpFile, const char* file){
+
+    //power went off between remove and rename: tmp file is complete, recover it
+    if (!SPIFFS.exists(file) && SPIFFS.exists(tmpFile))
+    {
+        DebugSerial("Recovering "+String(file));
+        SPIFFS.rename(tmpFile, file);
+    }
+    //power went off while writing tmp file: real file is still valid, discard tmp
+    else if (SPIFFS.exists(tmpFile))
+    {
+        SPIFFS.remove(tmpFile);
+    }
 }
 
 void myUtils::readSettings(){
+
+ recoverTmpFile(SETTINGS_TMP_FILE, SETTINGS_FILE);
 
  if (SPIFFS.exists(SETTINGS_FILE)) {
     File f = SPIFFS.open(SETTINGS_FILE, "r");
@@ -136,7 +160,8 @@ void myUtils::readSettings(){
 
 void myUtils::writeSettings(){
 
- File f = SPIFFS.open(SETTINGS_FILE, "w");
+ //write on tmp file: if power goes off while writing, old settings are still valid
+ File f = SPIFFS.open(SETTINGS_TMP_FILE, "w");
  if (f) {
 
     //same order in _deviceSettings
@@ -154,8 +179,10 @@ void myUtils::writeSettings(){
     f.println(_deviceSettings.boot_auto_connect);
     f.println(_deviceSettings.obd_cmd_delay);
     f.println(_deviceSettings.lost_connection_attemps);
-    f.println(_deviceSettings.car_model);    
+    f.println(_deviceSettings.car_model);
     f.close();
+
+    commitTmpFile(SETTINGS_TMP_FILE, SETTINGS_FILE);
   }
 }
 
@@ -164,7 +191,10 @@ DeviceSettings& myUtils::getSettings(){
 }
 
 void myUtils::resetFactory(){
-  
+
+  //format takes many seconds: loop watchdog must not restart device meanwhile
+  disableLoopWDT();
+
   ResetFS();
   
   #if CANBUS_DIRECT
@@ -197,6 +227,8 @@ void myUtils::readOilValues(){
    _canWriteOilValues = false;
 
   float lastOilLevel = 0.0;
+
+  recoverTmpFile(GRAPH_OIL_TMP_FILE, GRAPH_OIL_FILE);
 
   if (!SPIFFS.exists(GRAPH_OIL_FILE))
   {
@@ -315,15 +347,20 @@ void myUtils::writeOilValues(float currentLevel){
     app.oilLevels[MAX_OIL_LOG-1].level = currentLevel;
   }
   
-  //now write values
-  File f = SPIFFS.open(GRAPH_OIL_FILE, "w");
+  //now write values on temp file: if power goes off while writing, old log is still valid
+  File f = SPIFFS.open(GRAPH_OIL_TMP_FILE, "w");
 
-  for(int i=0;i<MAX_OIL_LOG;i++)
+  if(f)
   {
-     f.println(String(app.oilLevels[i].level)+" "+String(app.oilLevels[i].distance));
+    for(int i=0;i<MAX_OIL_LOG;i++)
+    {
+       f.println(String(app.oilLevels[i].level)+" "+String(app.oilLevels[i].distance));
+    }
+
+    f.close();
+
+    commitTmpFile(GRAPH_OIL_TMP_FILE, GRAPH_OIL_FILE);
   }
- 
-  f.close();
 
   _canReadOilValues = true;
 
@@ -342,7 +379,12 @@ void myUtils::resetOilValues(){
 
   if (SPIFFS.exists(GRAPH_OIL_FILE))
   {
-      SPIFFS.remove(GRAPH_OIL_FILE);      
+      SPIFFS.remove(GRAPH_OIL_FILE);
+  }
+
+  if (SPIFFS.exists(GRAPH_OIL_TMP_FILE))
+  {
+      SPIFFS.remove(GRAPH_OIL_TMP_FILE);
   }
 
   for(int i=0; i < MAX_OIL_LOG;i++){

@@ -18,6 +18,9 @@ void ESP32S3Buzzer::end() {
 void ESP32S3Buzzer::tone(uint32_t freq, uint32_t onDuration, uint32_t offDuration, uint16_t cycles) {
   Tone newTone = {freq, onDuration, offDuration, cycles};
   std::lock_guard<std::mutex> lock(_queueMutex);
+  if (_toneQueue.size() >= BUZZER_MAX_QUEUE) {
+    return;
+  }
   _toneQueue.push(newTone);
 }
 

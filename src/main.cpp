@@ -59,7 +59,13 @@ void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
  
   app.Init();
-  
+
+  #if CANBUS_DIRECT
+  //loop() is fed at every iteration: if it hangs more than watchdog timeout (3s) device restarts
+  //not with bluetooth: scanning and pairing block loop() for many seconds
+  enableLoopWDT();
+  #endif
+
 }
 
 void loop() {  

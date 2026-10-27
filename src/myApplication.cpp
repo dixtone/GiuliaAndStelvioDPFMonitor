@@ -195,7 +195,10 @@ void myApplication::checkRegenerationStatus(){
 }
 
 void myApplication::checkAlarms(){
-  if(millis()-_previousAlarmMillis > utils.getSettings().alarm_interval*1000 || !_previousAlarmMillis)
+  //minimum interval: with 0 tones would be queued every loop until memory runs out
+  unsigned long interval = (unsigned long)max(utils.getSettings().alarm_interval, ALARM_MIN_INTERVAL)*1000UL;
+
+  if(millis()-_previousAlarmMillis > interval || !_previousAlarmMillis)
   {
  
       if(regenAlarm)
@@ -400,16 +403,34 @@ void myApplication::readOBD2Values(void * parameter){
 void myApplication::manageOilValues(void * parameter){
 
   float preValue = 0.0;
+  float stableValue = 0.0; //level we are checking for stability
+  unsigned long stableSince = 0;
 
   while(1)
   {
-    if(app.OIL_LEVEL>0.0 && preValue!=app.OIL_LEVEL)
-    {
-        utils.writeOilValues(app.OIL_LEVEL);
+    float level = app.OIL_LEVEL;
 
-        preValue = app.OIL_LEVEL;
-    }    
-    
+    //0 means not read (page switch, timeout): don't reset stability
+    if(level>0.0)
+    {
+      //level changed (ex. engine start): restart stability time
+      if(stableValue==0.0 || fabs(level-stableValue) > OIL_LOG_TOLERANCE + 0.0001) //epsilon: float rounding
+      {
+        stableValue = level;
+        stableSince = millis();
+      }
+
+      //write only after power on delay and if level is stable, so not during engine cranking
+      if(millis() > OIL_LOG_START_DELAY
+        && millis()-stableSince > OIL_LOG_STABLE_TIME
+        && stableValue!=preValue)
+      {
+          utils.writeOilValues(stableValue);
+
+          preValue = stableValue;
+      }
+    }
+
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 }

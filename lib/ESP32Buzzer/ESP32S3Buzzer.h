@@ -5,6 +5,11 @@
 #include <queue>
 #include <mutex>
 
+//max queued tones: new tones are dropped when full, so memory can't grow without limit
+#ifndef BUZZER_MAX_QUEUE
+#define BUZZER_MAX_QUEUE 16
+#endif
+
 class ESP32S3Buzzer {
 public:
   ESP32S3Buzzer(uint8_t pin, uint8_t channel);

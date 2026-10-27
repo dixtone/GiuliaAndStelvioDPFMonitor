@@ -455,6 +455,8 @@ void myBtUtils::getPairedDevice(){
   pairedDevice = {};
   pairedDevice.phantom = true;
     
+ utils.recoverTmpFile(PAIRED_DEVICE_TMP_FILE, PAIRED_DEVICE_FILE);
+
  //first row: name, second address, last: channel
  if (SPIFFS.exists(PAIRED_DEVICE_FILE)) {
    
@@ -523,13 +525,16 @@ void myBtUtils::getPairedDevice(){
 bool myBtUtils::savePairedDevice(){
 
 
- File f = SPIFFS.open(PAIRED_DEVICE_FILE, "w");
+ //write on tmp file: if power goes off while writing, old paired device is still valid
+ File f = SPIFFS.open(PAIRED_DEVICE_TMP_FILE, "w");
  if (f) {
     //same order in _pairedDevice
     f.println(pairedDevice.name);
     f.println(pairedDevice.address);
     f.println(String(pairedDevice.channel));
     f.close();
+
+    utils.commitTmpFile(PAIRED_DEVICE_TMP_FILE, PAIRED_DEVICE_FILE);
     utils.DebugSerial("Saved paired device: "+pairedDevice.name+" "+pairedDevice.address);  
     return true;
   }
@@ -543,10 +548,12 @@ void myBtUtils::resetPairedDevice(){
   pairedDevice.phantom = true;
   app.ELMInitialized = false;
 
-  File f = SPIFFS.open(PAIRED_DEVICE_FILE, "r");
-  if (f) {
-      f.close();
+  if (SPIFFS.exists(PAIRED_DEVICE_FILE)) {
       SPIFFS.remove(PAIRED_DEVICE_FILE);
+  }
+
+  if (SPIFFS.exists(PAIRED_DEVICE_TMP_FILE)) {
+      SPIFFS.remove(PAIRED_DEVICE_TMP_FILE);
   }
   
   clearBoundedDevices();
