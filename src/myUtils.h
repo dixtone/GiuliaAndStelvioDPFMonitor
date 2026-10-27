@@ -26,6 +26,7 @@ class myUtils{
         void writeOilValues(float currentLevel);
         void resetOilValues();
         void resetDevice();
+        String resetReasonText(); //last reset reason, for info page
 
         static void NullCb(String PidName, uint8_t* responseBytes){};
         static void CustomBytesValues(String PidName, uint8_t* responseBytes);

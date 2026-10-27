@@ -7,7 +7,12 @@
 
 //max queued tones: new tones are dropped when full, so memory can't grow without limit
 #ifndef BUZZER_MAX_QUEUE
-#define BUZZER_MAX_QUEUE 16
+#define BUZZER_MAX_QUEUE 32
+#endif
+
+//PWM duty (10 bits: 0-1023, 512 = 50%): lower duty means lower current and volume
+#ifndef BUZZER_DUTY
+#define BUZZER_DUTY 256
 #endif
 
 class ESP32S3Buzzer {
@@ -19,6 +24,8 @@ public:
   void update();
 
 private:
+  void playFrequency(uint32_t freq);
+
   uint8_t _pin;
   uint8_t _ledcChannel;
   uint8_t _timerIndex;

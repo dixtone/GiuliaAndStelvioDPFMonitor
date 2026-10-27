@@ -205,6 +205,21 @@ void myUtils::resetFactory(){
   resetDevice();
 }
 
+String myUtils::resetReasonText(){
+
+  switch(esp_reset_reason())
+  {
+    case ESP_RST_POWERON:   return "on";
+    case ESP_RST_BROWNOUT:  return "bout";
+    case ESP_RST_SW:        return "sw";
+    case ESP_RST_PANIC:     return "crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "wd";
+    default:                return "other";
+  }
+}
+
 void myUtils::resetDevice(){
 
   //in some conditions, after restart, buzzer tone continue (BUG?), write high freq to stop it

@@ -31,7 +31,7 @@ void myDisplay::InitDisplayVariables()
    DeviceSettings settings = utils.getSettings();
 
   _hmi->setText(DwinAddress::SETTING_INFO1_TXT, "SD4 DPF Monitor - build "+String(BUILD_NUMBER), 40);
-  _hmi->setText(DwinAddress::SETTING_INFO2_TXT, "Esp32 rev. "+String(ESP.getChipRevision())+" cores "+ String(ESP.getChipCores()) , 40);
+  _hmi->setText(DwinAddress::SETTING_INFO2_TXT, "Esp32 rev. "+String(ESP.getChipRevision())+" cores "+ String(ESP.getChipCores())+" - rst: "+utils.resetReasonText(), 40);
   _hmi->setText(DwinAddress::SETTING_INFO3_TXT, VERSION, 40);
   _hmi->setText(DwinAddress::SETTING_INFO4_TXT, "2025 @ Dixtone - All right reserved", 40);
 

@@ -118,6 +118,13 @@ class myApplication: public LoopableClass, public IOBD2MessageListener
             bool _prevregenerationInProgress = false;
             unsigned long _previousResetMillis = 0;
             unsigned long _previousAlarmMillis = 0;
+
+            //alarms sounds
+            bool _quietAlarms = false;          //last reset was a brownout: short low beeps only
+            uint8_t _prevAlarmMask = 0;         //active alarms at last check
+            void playRegenSiren();
+            void playTempSound();
+            void playClogSound();
             bool unreadableData();
             void checkRegenerationStatus();
 

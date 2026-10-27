@@ -38,6 +38,10 @@ void myApplication::Init(){
 
     _obdMutex = xSemaphoreCreateRecursiveMutex();
 
+    //after a brownout (power supply can't handle buzzer current) alarms are quiet:
+    //otherwise alarm sound would restart device again and again
+    _quietAlarms = (esp_reset_reason() == ESP_RST_BROWNOUT);
+
     utils.DebugSerial("Init application");
     
     #if CANBUS_DIRECT
@@ -194,34 +198,85 @@ void myApplication::checkRegenerationStatus(){
    }
 }
 
+//alarms sounds: frequency 0 is a pause.
+//every tone is max 150ms with a pause after it: a long continuous tone draws too much current (brownout)
+//quiet mode (after a brownout reset): only few short low beeps, to not restart again
+void myApplication::playRegenSiren(){
+  if(_quietAlarms)
+  {
+    buzzer.tone(1000, 80, 120, 3);
+    return;
+  }
+
+  //high, high, pause, low, low, low: two times
+  for(int r=0;r<2;r++)
+  {
+    buzzer.tone(1500, 90, 80, 2);
+    buzzer.tone(500, 250, 80, 5);
+
+    if(r==0) buzzer.tone(0, 600, 0, 1);
+  }
+}
+
+void myApplication::playTempSound(){
+  if(_quietAlarms)
+  {
+    buzzer.tone(1500, 80, 120, 2);
+    return;
+  }
+
+  //alternated high and low tones
+  for(int i=0;i<3;i++)
+  {
+    buzzer.tone(1000, 150, 50, 1);
+  }
+}
+
+void myApplication::playClogSound(){
+  if(_quietAlarms)
+  {
+    buzzer.tone(1500, 80, 120, 1);
+    return;
+  }
+
+  //slow low beeps
+  buzzer.tone(800, 150, 350, 3);
+}
+
 void myApplication::checkAlarms(){
   //minimum interval: with 0 tones would be queued every loop until memory runs out
-  unsigned long interval = (unsigned long)max(utils.getSettings().alarm_interval, ALARM_MIN_INTERVAL)*1000UL;
+  unsigned long minInterval = (unsigned long)ALARM_MIN_INTERVAL*1000UL;
+  unsigned long interval = max((unsigned long)utils.getSettings().alarm_interval*1000UL, minInterval);
 
-  if(millis()-_previousAlarmMillis > interval || !_previousAlarmMillis)
+  //regeneration includes high exhaust temperature: only its sound
+  uint8_t alarmMask = regenAlarm ? 0x01 : ((tempAlarm ? 0x02 : 0x00) | (clogAlarm ? 0x04 : 0x00));
+
+  //new alarm: play now (not before minimum interval, if value is around threshold), then every interval
+  bool newAlarm = alarmMask!=0 && alarmMask!=_prevAlarmMask && (!_previousAlarmMillis || millis()-_previousAlarmMillis > minInterval);
+  _prevAlarmMask = alarmMask;
+
+  if(alarmMask && (newAlarm || !_previousAlarmMillis || millis()-_previousAlarmMillis > interval))
   {
- 
       if(regenAlarm)
       {
-          buzzer.tone(1500, 100, 50, 2); 
-          buzzer.tone(1000, 200, 100, 3);
+          playRegenSiren();
       }
       else{
-        
+        if(tempAlarm)
+        {
+           playTempSound();
+        }
+
         if(tempAlarm && clogAlarm)
         {
-           buzzer.tone(1000, 125, 50, 3);  
+           buzzer.tone(0, 500, 0, 1);
         }
-        else if(tempAlarm)
-        {
-           buzzer.tone(1000, 125, 50, 2);
-          
-        }
-        else if(clogAlarm){
-           buzzer.tone(1000, 125, 50, 1);
+
+        if(clogAlarm){
+           playClogSound();
         }
       }
-      _previousAlarmMillis = millis();      
+      _previousAlarmMillis = millis();
   }
 }
 
@@ -629,36 +684,10 @@ OBD2Request myApplication::pidList[] = {
   {"ENG_PIDS","ATMO_PRESSURE", false, 0x18DA10F1, 0x22, 0x1956, 0x02, 1, -32767, &app.ATMO_PRESSURE, &myUtils::CustomBytesValues,10000},         //ATMO_BOOST_PRESSURE     = 6490;  // 0x195A => ((A*256)+B)-32767
   //{"AIR_INTAKE_TEMP", 0x18DA10F1, 0x22, 0x1935, 0x02, 0.02, -40, &app.AIR_INTAKE_TEMP, nullptr, 2003}         //AIR_INTAKE_TEMP          = 6453;  // 0x1935 => (((A*256)+B)*0.02)-40 //gradi celsius
   //{"ENG_PIDS","OVER_BOOST_PERC", false,0x18DA10F1, 0x22, 0x193A,  0x02, 100.0/65535.0, 0, &app.OVER_BOOST_PERC, nullptr,70},   //NOT WORKS!!!      //0x193A => ((A*256)+B)*(100/65535)
-  
-  /*
-  Pressione Atmosferica:1009 bar   221956 62195683F0  ((A*256)+B)-32767
-  Pressione MAP:1012bar  22195A 62195A83F3 ((A*256)+B)-32767
-  Posizione Pompa Olio: bassa 22194F 62194F01 ?
-  Temp Ingresso turbina: 153,26 223836 62383625D8 (((A*256)+B)*0.02)-40 
-  */
-
+ 
   //radio hub
   {"REMOTEKEY_PIDS", "KEY_NUMBER_AND_LAST", true, 0x18DAC7F1, 0x22, 0x0102, 0x03, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,6000},//KEY_NUMBER_AND_LAST multirow pid
-  /*
-      008
-      2 62 01 02 00 A6 02 02 FF FF FF FF FF FF  
-      1 62 01 02 00 FA 02 01 FF FF FF FF FF FF
-
-      key num: byte[2]
-      key last: byte[3] 
-      
-  */
   {"REMOTEKEY_PIDS", "REMOTE_NUMBER_AND_LAST", true, 0x18DAC7F1, 0x22, 0x40A4, 0x03, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,5000},//REMOTE_NUMBER_AND_LAST multirow pid
-  /*
-      00B
-      2 62 40 A4 02 02 FF FF FF FF FF FF FF FF 
-      1 62 40 A4 02 01 FF FF FF FF FF FF FF FF
-      remote num: byte[0]
-      remote last: byte[1] 
-      ID: byte[3] byte[4] byte[5] byte[6]
-  */
-
-  //waring: 0x18xxxxxx is priority as diagnostics. We can use 0x30xxxxxx to lower priority
 
   //service values 
   {"SERVICE_PIDS", "OIL_DEGRADATION", true, 0x18DA10F1, 0x22, 0x3813, 0x02, 100.0/65535.0, 0, &app.OIL_DEGRADATION, &myUtils::NullCb,30002}, //OIL_DEGRADATION          = 14355; // 0x3813 => ((A*256)+B)*(100/65535) //% degrado olio
@@ -676,13 +705,6 @@ OBD2Request myApplication::pidList[] = {
   {"BATTERY_PIDS","BATTERY_OEM", true, 0x18DA10F1, 0x22, 0x1955, 0x02, 0.5/1000.0, 0, &app.BATTERY_OEM, &myUtils::NullCb, 2000},                  //BATTERY_OEM              = 6485;  // 0x1955 => ((A*256)+B)*(0.5/1000) 
   {"BATTERY_PIDS","IBS_CHARGE_LEVEL", true, 0x18DA10F1, 0x22, 0x19BD, 0x01, 1, 0, &app.IBS_CHARGE_LEVEL, &myUtils::NullCb,10000},                  //IBS_CHARGE_LEVEL         = 6589;  // 0x19BD => A //% di carica
   {"BATTERY_PIDS","BATTERY_TEMP_AMP", true, 0x18DA40F1, 0x22, 0x1005, 0x04, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,100},//BATTERY_TEMP_AMP multirow pid : temp:byte[6]-40   amp: byte[10] + byte[12] . in test
-  /*
-      010
-      0:621005005378
-      1:0000C83401682C
-      2:FD81EB
-      
-  */   
 
   //GAS PIDs
   #if !GAS_ENGINE
@@ -701,15 +723,6 @@ OBD2Request myApplication::pidList[] = {
   {"TIRES_PIDS", "T_ADX", true, 0x18DAC7F1, 0x22, 0x40B2, 0x03, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,3000},        //T_ADX multirow pid : byte[4]-50
   {"TIRES_PIDS", "T_PSX", true, 0x18DAC7F1, 0x22, 0x40B3, 0x03, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,3000},        //T_PSX multirow pid : byte[4]-50
   {"TIRES_PIDS", "T_PDX", true, 0x18DAC7F1, 0x22, 0x40B4, 0x03, 1, 0, &app.NULL_VALUE, &myUtils::CustomBytesValues,3000},        //T_PSX multirow pid : byte[4]-50
-  /*
-      00B
-      0:6240B10A4B00
-      1:00450182DC4B00    
-
-      Rif P anteriore: 2.207 2231C6 6231C6089F  ((A*256)+B)/1000
-      Rif P Posteriore: 2.414 2231C7 6231C7096E ((A*256)+B)/1000
-
-  */
-};
+ };
 
 const size_t myApplication::pidListSize = sizeof(myApplication::pidList) / sizeof(OBD2Request);
