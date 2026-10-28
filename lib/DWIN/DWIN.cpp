@@ -41,9 +41,7 @@ void DWIN::returnResponseEnabled(bool responseEnabled){
 // Get Hardware Firmware Version of DWIN HMI
 double DWIN::getHWVersion(){  //  HEX(5A A5 04 83 00 0F 01)
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00, 0x0F, 0x01};
-    writeDWIN(sendBuffer, sizeof(sendBuffer)); 
-    delay(10);
-    return readCMDLastByte();
+    return lastResponseByte(query(sendBuffer, sizeof(sendBuffer)));
 }
 
 // Restart DWIN HMI
@@ -64,8 +62,7 @@ void DWIN::setBrightness(byte brightness){
 // GETET DWIN Brightness
 byte DWIN::getBrightness(){
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00, 0x31, 0x01 };
-    writeDWIN(sendBuffer, sizeof(sendBuffer));
-    return readCMDLastByte();
+    return lastResponseByte(query(sendBuffer, sizeof(sendBuffer)));
 }
 
 // Change Page 
@@ -79,30 +76,28 @@ void DWIN::setPage(byte page){
 // Get Current Page ID
 int DWIN::getPage(){
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00 , 0x14, 0x01};
-    writeDWIN(sendBuffer, sizeof(sendBuffer)); 
-    return int(readCMDLastByte());
+    return int(lastResponseByte(query(sendBuffer, sizeof(sendBuffer))));
 }
 
 int DWIN::getScreenRotation(){
-    if(_rotation != NULL) return _rotation;
+    if(_rotation >= 0) return _rotation;
 
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00 , 0x80, 0x02}; //read display configuration
-    String resp = writeDWIN(sendBuffer, sizeof(sendBuffer)); 
-    int r = (uint64_t) strtoull(resp.substring(resp.length()-2).c_str(), 0, 16); //last byte contains rotation configuration
+    String resp = query(sendBuffer, sizeof(sendBuffer));
+    int r = lastResponseByte(resp); //last byte contains rotation configuration
     //by configuration we have 7 bits: bit 0 and bit 1 are rotation.
     //00 = 0 °, 01 = 90 °, 10 =180 ° ,11 = 270 °
-    byte c = (r >> 0) & 1 || (r >> 1) & 1;
-    switch(c){
-        case 0x0:
+    switch(r & 0x03){
+        case 0:
             _rotation= 0;
         break;
-        case 0x01:
+        case 1:
             _rotation= 90;
         break;
-        case 0x10:
+        case 2:
             _rotation= 180;
         break;
-        case 0x11:
+        case 3:
             _rotation= 270;
         break;
     }
@@ -112,7 +107,7 @@ int DWIN::getScreenRotation(){
 
 // Get Resolution
 int DWIN::getHorizontalResolution(){
-    if(_width!=NULL) return _width;
+    if(_width > 0) return _width;
     int rot = getScreenRotation();
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00 , 0x7A, 0x01};
     
@@ -121,14 +116,14 @@ int DWIN::getHorizontalResolution(){
         sendBuffer[5] = 0x7B;
     }
     
-    String resp = writeDWIN(sendBuffer, sizeof(sendBuffer)); 
+    String resp = query(sendBuffer, sizeof(sendBuffer)); 
     //last 2 bytes are resolution
     _width = (uint64_t) strtoull(resp.substring(resp.length()-4).c_str(), 0, 16);    
     return _width;
 }
 
 int DWIN::getVerticalResolution(){
-    if(_height!=NULL) return _height;
+    if(_height > 0) return _height;
 
     int rot = getScreenRotation();
     byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x04, CMD_READ, 0x00 , 0x7B, 0x01};
@@ -138,7 +133,7 @@ int DWIN::getVerticalResolution(){
         sendBuffer[5] = 0x7A;
     }
 
-    String resp = writeDWIN(sendBuffer, sizeof(sendBuffer)); 
+    String resp = query(sendBuffer, sizeof(sendBuffer)); 
     //last 2 bytes are resolution
     _height = (uint64_t) strtoull(resp.substring(resp.length()-4).c_str(), 0, 16);    
     return _height;
@@ -148,49 +143,42 @@ int DWIN::getVerticalResolution(){
 // Set Text on VP Address
 void DWIN::setText(long address, String textData){
 
-    int dataLen = textData.length();
-    byte startCMD[] = {CMD_HEAD1, CMD_HEAD2, dataLen+3 , CMD_WRITE, 
-    (address >> 8) & 0xFF, (address) & 0xFF};
-    byte dataCMD[dataLen];textData.getBytes(dataCMD, dataLen+1);
+    //frame length is one byte: 0x82 + 2 bytes address + text
+    int dataLen = min((int)textData.length(), 252);
     byte sendBuffer[6+dataLen];
 
-    memcpy(sendBuffer, startCMD, sizeof(startCMD));
-    memcpy(sendBuffer+6, dataCMD, sizeof(dataCMD));
+    sendBuffer[0] = CMD_HEAD1;
+    sendBuffer[1] = CMD_HEAD2;
+    sendBuffer[2] = dataLen+3;
+    sendBuffer[3] = CMD_WRITE;
+    sendBuffer[4] = (address >> 8) & 0xFF;
+    sendBuffer[5] = (address) & 0xFF;
+    memcpy(sendBuffer+6, textData.c_str(), dataLen);
 
-    writeDWIN(sendBuffer, sizeof(sendBuffer));    
+    writeDWIN(sendBuffer, sizeof(sendBuffer));
 }
 
 // Set Text on VP Address
 void DWIN::setText(long address, String textData, int length){
 
-    int dataLen = textData.length();
-
-    if(dataLen < length)
+    //pad with spaces to clear previous text, truncate to not overwrite next VP
+    if((int)textData.length() > length)
     {
-        for(int i=dataLen;i<length;i++)
-        {
-            textData+=" ";
-            dataLen++;
-        }
+        textData = textData.substring(0, length);
     }
-    
-    byte startCMD[] = {CMD_HEAD1, CMD_HEAD2, dataLen+3 , CMD_WRITE, 
-    (address >> 8) & 0xFF, (address) & 0xFF};
-    byte dataCMD[dataLen];textData.getBytes(dataCMD, dataLen+1);
-    byte sendBuffer[6+dataLen];
 
-    memcpy(sendBuffer, startCMD, sizeof(startCMD));
-    memcpy(sendBuffer+6, dataCMD, sizeof(dataCMD));
+    while((int)textData.length() < length)
+    {
+        textData+=" ";
+    }
 
-    writeDWIN(sendBuffer, sizeof(sendBuffer));
-    //readDWIN();
-    
+    setText(address, textData);
 }
 
 // Set Data on VP Address
 void DWIN::setVP(long address, byte data){
     
-    byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x05 , CMD_WRITE, (address >> 8) & 0xFF, (address) & 0xFF, 0x00, data};
+    byte sendBuffer[] = {CMD_HEAD1, CMD_HEAD2, 0x05 , CMD_WRITE, (byte)((address >> 8) & 0xFF), (byte)((address) & 0xFF), 0x00, data};
     
     writeDWIN(sendBuffer, sizeof(sendBuffer));
 }
@@ -292,9 +280,33 @@ void DWIN::listen(int timeout){
 }
 
 String DWIN::writeDWIN(const uint8_t* buffer, size_t size)
-{   
+{
   _dwinSerial->write(buffer, size);
+
+  //without ACK firmware there is nothing to wait for: touch events are read by listen()
+  if(!_returnResponseEnabled)
+    return "";
+
   return handle();
+}
+
+//send a read command (0x83) and wait for its response, without dispatching it as touch event
+String DWIN::query(const uint8_t* buffer, size_t size)
+{
+  //dispatch pending touch events first, so they are not mixed with the response
+  if(_dwinSerial->available() > 0)
+    handle();
+
+  _dwinSerial->write(buffer, size);
+  return handle(false);
+}
+
+byte DWIN::lastResponseByte(String response)
+{
+  if(response.length() < 2)
+    return 0xFF;
+
+  return (byte) strtoul(response.substring(response.length()-2).c_str(), 0, 16);
 }
      
 String DWIN::checkHex(byte currentNo){
@@ -304,7 +316,7 @@ String DWIN::checkHex(byte currentNo){
     return String(currentNo, HEX);
 }
 
-String DWIN::handle(){
+String DWIN::handle(bool dispatchEvents){
     
     String response;
 
@@ -334,7 +346,7 @@ String DWIN::handle(){
        int _data;
        int _lastbyte;
            
-       if(response.indexOf("5aa5")!=-1) //se ho gli header del pacchetto significa che ho un messaggio in entrata
+       if(dispatchEvents && response.indexOf("5aa5")!=-1) //se ho gli header del pacchetto significa che ho un messaggio in entrata
        {
           String resp = response;
           resp.replace("5aa5","");
@@ -411,8 +423,8 @@ void DWIN::drawLine(long address, long color, pointCoord* points, size_t pointsi
         0xFF00: End of drawing operation.
     */
     
-    if(_width==NULL) getHorizontalResolution();
-    if(_height==NULL) getVerticalResolution();
+    if(_width <= 0) getHorizontalResolution();
+    if(_height <= 0) getVerticalResolution();
 
     int len = 14+pointsize*4;
     byte sendBuffer[len];
@@ -485,13 +497,18 @@ void DWIN::drawSquarePoints(long address, pointCoord* points, size_t pointsize){
         0xFF00: The drawing operation ends.
     */
     
-    if(_width==NULL) getHorizontalResolution();
-    if(_height==NULL) getVerticalResolution();
+    if(_width <= 0) getHorizontalResolution();
+    if(_height <= 0) getVerticalResolution();
     
-    int len = 12+pointsize*10;
-    byte sendBuffer[len];
+    //only points with size are drawn: frame length and rectangles count must match them
+    long fillRect = 0;
+    for(int i=0;i<pointsize;i++)
+    {
+        if(points[i].w>0 && points[i].h>0) fillRect++;
+    }
 
-    long fillRect = pointsize;
+    int len = 12+fillRect*10;
+    byte sendBuffer[len];
 
     sendBuffer[0] = CMD_HEAD1;
     sendBuffer[1] = CMD_HEAD2;

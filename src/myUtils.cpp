@@ -5,7 +5,6 @@
 
 extern OBD2 obd2;
 extern myApplication app;
-extern BluetoothSerial BluetoothConnector;
 extern myBtUtils btUtils;
 extern ESP32S3Buzzer buzzer;
 
@@ -27,32 +26,67 @@ void myUtils::InitFS(){
 }
 
 void myUtils::ResetFS(){
-    SPIFFS.format();    
+    SPIFFS.format();
+}
+
+//tmp file is complete and closed: replace real file with it
+void myUtils::commitTmpFile(const char* tmpFile, const char* file){
+    SPIFFS.remove(file);
+    SPIFFS.rename(tmpFile, file);
+}
+
+//call before reading a safe written file
+void myUtils::recoverTmpFile(const char* tmpFile, const char* file){
+
+    //power went off between remove and rename: tmp file is complete, recover it
+    if (!SPIFFS.exists(file) && SPIFFS.exists(tmpFile))
+    {
+        DebugSerial("Recovering "+String(file));
+        SPIFFS.rename(tmpFile, file);
+    }
+    //power went off while writing tmp file: real file is still valid, discard tmp
+    else if (SPIFFS.exists(tmpFile))
+    {
+        SPIFFS.remove(tmpFile);
+    }
 }
 
 void myUtils::readSettings(){
 
+ recoverTmpFile(SETTINGS_TMP_FILE, SETTINGS_FILE);
+
  if (SPIFFS.exists(SETTINGS_FILE)) {
     File f = SPIFFS.open(SETTINGS_FILE, "r");
-    char buffer[64];
     if (f) {
         int ln = 0;
 
         vector<String> v;
         while (f.available()) {
+          //ensure length
+          if(ln>15)
+          {
+            break;
+          }
+
           v.push_back(f.readStringUntil('\n'));
+
+          ln++;
         }
         
         //ensure lines corresponding to settings we want
-        if (v.size() > 15)
+        if (v.size() > 15 || ln > 15)
         {
           f.close();
           DebugSerial("Settings Filesize not valid, removing...");
           SPIFFS.remove(SETTINGS_FILE);
         }
         else{
+
+            ln = 0;
             for (String buffer : v) 
             {
+              buffer.trim();
+              
               switch(ln)
               {
                   case 0:
@@ -126,7 +160,8 @@ void myUtils::readSettings(){
 
 void myUtils::writeSettings(){
 
- File f = SPIFFS.open(SETTINGS_FILE, "w");
+ //write on tmp file: if power goes off while writing, old settings are still valid
+ File f = SPIFFS.open(SETTINGS_TMP_FILE, "w");
  if (f) {
 
     //same order in _deviceSettings
@@ -144,8 +179,10 @@ void myUtils::writeSettings(){
     f.println(_deviceSettings.boot_auto_connect);
     f.println(_deviceSettings.obd_cmd_delay);
     f.println(_deviceSettings.lost_connection_attemps);
-    f.println(_deviceSettings.car_model);    
+    f.println(_deviceSettings.car_model);
     f.close();
+
+    commitTmpFile(SETTINGS_TMP_FILE, SETTINGS_FILE);
   }
 }
 
@@ -154,12 +191,33 @@ DeviceSettings& myUtils::getSettings(){
 }
 
 void myUtils::resetFactory(){
-  
+
+  //format takes many seconds: loop watchdog must not restart device meanwhile
+  disableLoopWDT();
+
   ResetFS();
   
+  #if CANBUS_DIRECT
+  #else
   btUtils.resetPairedDevice();
-
+  #endif
+  
   resetDevice();
+}
+
+String myUtils::resetReasonText(){
+
+  switch(esp_reset_reason())
+  {
+    case ESP_RST_POWERON:   return "on";
+    case ESP_RST_BROWNOUT:  return "bout";
+    case ESP_RST_SW:        return "sw";
+    case ESP_RST_PANIC:     return "crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "wd";
+    default:                return "other";
+  }
 }
 
 void myUtils::resetDevice(){
@@ -173,6 +231,19 @@ void myUtils::resetDevice(){
 }
 
 void myUtils::readOilValues(){
+
+  #if DISABLE_OIL_LOG
+    return;
+  #endif
+  
+  if(!_canReadOilValues)
+    return;
+  
+   _canWriteOilValues = false;
+
+  float lastOilLevel = 0.0;
+
+  recoverTmpFile(GRAPH_OIL_TMP_FILE, GRAPH_OIL_FILE);
 
   if (!SPIFFS.exists(GRAPH_OIL_FILE))
   {
@@ -196,18 +267,32 @@ void myUtils::readOilValues(){
     DebugSerial("Reading oil level...");
     vector<String> v;
     while (f.available()) {
+
+      //ensure length
+      if(ln>5)
+      {
+          break; 
+      } 
+
       v.push_back(f.readStringUntil('\n'));
+      ln++;
     }
+    
     //ensure lines corresponding to settings we want
-    if (v.size() > 5)
+    if (v.size() > 5 || ln > 5)
     {
       f.close();
       DebugSerial("Graph oil Filesize not valid, removing...");
       resetOilValues();
     }
     else{
+      
+      ln = 0;
       for (String buffer : v) 
       {
+        buffer.trim();
+        DebugSerial("Graph oil row buffer: "+buffer);
+
         value = buffer.substring(0, buffer.indexOf(" "));
         lev = value.toFloat();
         value = buffer.substring(buffer.indexOf(" ")+1);
@@ -215,24 +300,30 @@ void myUtils::readOilValues(){
         if(lev > 0.0)
         {
           app.oilLevels[ln] = { lev , value.toInt()};
-          app.lastOilLevel = lev;
+          lastOilLevel = lev;
         }         
-
         ln++;
       }
     }
   }
     
-  DebugSerial("Last oil level recorded: "+String(app.lastOilLevel));
+  DebugSerial("Last oil level recorded: "+String(lastOilLevel));
   
   f.close();
  
+  _canWriteOilValues = true;
 }
 
-void myUtils::writeOilValues(float previousLevel, float currentLevel){
+void myUtils::writeOilValues(float currentLevel){
 
-  if(currentLevel==0.0)
+  #if DISABLE_OIL_LOG
     return;
+  #endif
+
+  if(currentLevel==0.0 || !_canWriteOilValues)
+    return;
+
+  _canReadOilValues = false;
 
   short currentIndex=0;
   float lastValue = 0.0;
@@ -250,7 +341,10 @@ void myUtils::writeOilValues(float previousLevel, float currentLevel){
   }
 
   if(currentLevel==lastValue)
+  {
+    _canReadOilValues = true;
     return;
+  }
 
   app.updatedOilGraphValues = false;
   DebugSerial("Oil Level variation detected: "+String(currentLevel)+" "+String(lastValue));
@@ -268,40 +362,69 @@ void myUtils::writeOilValues(float previousLevel, float currentLevel){
     app.oilLevels[MAX_OIL_LOG-1].level = currentLevel;
   }
   
-  //now write values
-  File f = SPIFFS.open(GRAPH_OIL_FILE, "w");
+  //now write values on temp file: if power goes off while writing, old log is still valid
+  File f = SPIFFS.open(GRAPH_OIL_TMP_FILE, "w");
 
-  for(int i=0;i<MAX_OIL_LOG;i++)
+  if(f)
   {
-     f.println(String(app.oilLevels[i].level)+" "+String(app.oilLevels[i].distance));
+    for(int i=0;i<MAX_OIL_LOG;i++)
+    {
+       f.println(String(app.oilLevels[i].level)+" "+String(app.oilLevels[i].distance));
+    }
+
+    f.close();
+
+    commitTmpFile(GRAPH_OIL_TMP_FILE, GRAPH_OIL_FILE);
   }
- 
-  f.close();
+
+  _canReadOilValues = true;
 
   //refresh values
   readOilValues();
 }
 
 void myUtils::resetOilValues(){
+  
+  #if DISABLE_OIL_LOG
+    return;
+  #endif
+
+  _canReadOilValues = false;
+  _canWriteOilValues = false;
+
   if (SPIFFS.exists(GRAPH_OIL_FILE))
   {
-      SPIFFS.remove(GRAPH_OIL_FILE);      
+      SPIFFS.remove(GRAPH_OIL_FILE);
+  }
+
+  if (SPIFFS.exists(GRAPH_OIL_TMP_FILE))
+  {
+      SPIFFS.remove(GRAPH_OIL_TMP_FILE);
   }
 
   for(int i=0; i < MAX_OIL_LOG;i++){
       app.oilLevels[i] = {0.0, 0};
   }
 
+  _canReadOilValues = true;
+  _canWriteOilValues = true;
+
   DebugSerial("Deleted oil log files");
 }
 
 void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
-                
-    if(PidName=="TURBO_BOOST_PRESSURE")
+            
+    if(PidName=="OIL_PRESSURE")
+    {           
+        app.OIL_PRESSURE = (float)((responseBytes[0] & 0b00000001) << 7 | ((responseBytes[1]>> 1) & 0b01111111))/10.0;   
+    }
+    else if(PidName=="TURBO_BOOST_PRESSURE")
     {   
         //atmo pressure 1009 mbar
         //boost pressure ((A*256)+B)-32767
-        app.TURBO_BOOST_PRESSURE = ((responseBytes[0]*256 + responseBytes[1])-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009);
+        int raw = responseBytes[0]*256 + responseBytes[1];
+        //raw 0 means no data (reset or timeout), not a negative pressure
+        app.TURBO_BOOST_PRESSURE = raw>0 ? (raw-32767)/(app.ATMO_PRESSURE>0.0?app.ATMO_PRESSURE:1009) : 0.0;
     }
     else if(PidName=="KEY_NUMBER_AND_LAST")
     {
@@ -314,7 +437,10 @@ void myUtils::CustomBytesValues(String PidName, uint8_t* responseBytes){
         app.REMOTE_LAST = responseBytes[1];
     } 
     else if(PidName=="LAST_SERVICE_DATE"){
-        app.LAST_SERVICE_DATE = String(responseBytes[3],HEX)+"/"+ String(responseBytes[2],HEX)+"/"+String(responseBytes[0],HEX)+String(responseBytes[1],HEX);
+        //BCD date, ex. 20 24 02 08 => 08/02/2024
+        char date[11];
+        snprintf(date, sizeof(date), "%02X/%02X/%02X%02X", responseBytes[3], responseBytes[2], responseBytes[0], responseBytes[1]);
+        app.LAST_SERVICE_DATE = String(date);
     }
     else if(PidName=="BATTERY_TEMP_AMP"){
         app.BATTERY_TEMP = responseBytes[6]>0?responseBytes[6]-40:0;
@@ -368,13 +494,17 @@ void myUtils::elm327Setup(){
 }
 
 void myUtils::resetOBD2RequestValues(){
-  
+
+  app.lockOBD();
+
   obd2.flush();
-  
+
   for(int i=0;i<app.pidListSize;i++)
   {
     *app.pidList[i].BindValue = 0.0;
      app.pidList[i].ReadTime = 0;
      app.pidList[i].ValueCallback(app.pidList[i].Name, obd2.getResponseBytes());  //not needed
   }
+
+  app.unlockOBD();
 }

@@ -16,7 +16,6 @@ class myDisplay: public LoopableClass, public IDWINHandler
         void InitDisplayVariables();
         void UpdateDisplayVariables();
         void drawOilGraphValues();
-        bool updatedOilGraphValues = false;
         bool isHomePage();
         
         enum DwinAddress VpAddress;
@@ -26,7 +25,9 @@ class myDisplay: public LoopableClass, public IDWINHandler
         
 
     private:
-        DWIN* _hmi;    
+        DWIN* _hmi;
+        unsigned long _lastUpdateMillis = 0;
+        const unsigned long _updateInterval = 200; //display values refresh (ms)
 };
 
 #endif

@@ -108,7 +108,7 @@ enum DwinAddress{
     DASH_TXT_COOLANT = 0x40E0, //2bytes int
     DASH_OIL_ICO = 0x4110, //bit from 0-2
     DASH_TXT_OIL = 0x4150, //2bytes int
-    DASH_TXT_OIL_PRESSURE = 0x50B0, //2bytes int
+    DASH_TXT_OIL_PRESSURE = 0x50B0, //4bytes float
     DASH_GAUGE_CLOGGING = 0x4180, //int is %
     DASH_TXT_CLOGG_PERC = 0x4190, //2bytes int
     DASH_TXT_EXAUST = 0x41C0, //2bytes int
@@ -117,6 +117,10 @@ enum DwinAddress{
     DASH_TXT_NREGEN = 0x4204, //2bytes int
     DASH_TXT_INTAKE_TEMP = 0x4209, //2bytes int
     DASH_TXT_REGEN_PROCESS = 0x4220, //2bytes int
+    DASH_TXT_GEAR_TEMP = 0x50B5, //2bytes int
+    DASH_TXT_OIL_TEMP = 0x50B8, //2bytes int
+    DASH_TXT_TURBO_PERC = 0x50C2, //2bytes int
+    DASH_TXT_TURBO_TEMP = 0x50C5, //2bytes int
 
     //values
     PAGE_SLIDE_SWITCH= 0x14, //default sent from component
@@ -193,7 +197,7 @@ enum DwinPage{
     PAGE_OIL_GRAPH=30,
     PAGE_BATTERY_INFOS =32,
     PAGE_GASOIL_INFOS =33,
-    PAGE_TIRES_INFOS =34
+    PAGE_TIRES_INFOS =34,
     
 };
 

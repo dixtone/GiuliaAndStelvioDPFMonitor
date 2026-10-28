@@ -32,7 +32,11 @@
 #include "myBtUtils.h"
 
 //app definitions
+#if BLUETOOTH_BLE
+BLEsp32 BluetoothConnector;
+#else
 BluetoothSerial BluetoothConnector;
+#endif
 
 ESP32S3Buzzer buzzer(BUZZER_PIN, BUZZER_CHN);
 
@@ -47,6 +51,7 @@ myDisplay display(&hmi);
 myApplication app;
 
 TaskHandle_t asyncTask;
+TaskHandle_t asyncTask2;
 
 //main
 void setup() {
@@ -54,7 +59,13 @@ void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
  
   app.Init();
-  
+
+  #if CANBUS_DIRECT
+  //loop() is fed at every iteration: if it hangs more than watchdog timeout (3s) device restarts
+  //not with bluetooth: scanning and pairing block loop() for many seconds
+  enableLoopWDT();
+  #endif
+
 }
 
 void loop() {  

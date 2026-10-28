@@ -31,9 +31,9 @@ void myDisplay::InitDisplayVariables()
    DeviceSettings settings = utils.getSettings();
 
   _hmi->setText(DwinAddress::SETTING_INFO1_TXT, "SD4 DPF Monitor - build "+String(BUILD_NUMBER), 40);
-  _hmi->setText(DwinAddress::SETTING_INFO2_TXT, "Esp32 rev. "+String(ESP.getChipRevision())+" cores "+ String(ESP.getChipCores()) , 40);
+  _hmi->setText(DwinAddress::SETTING_INFO2_TXT, "Esp32 rev. "+String(ESP.getChipRevision())+" cores "+ String(ESP.getChipCores())+" - rst: "+utils.resetReasonText(), 40);
   _hmi->setText(DwinAddress::SETTING_INFO3_TXT, VERSION, 40);
-  _hmi->setText(DwinAddress::SETTING_INFO4_TXT, "2024 @ Dixtone - All right reserved", 40);
+  _hmi->setText(DwinAddress::SETTING_INFO4_TXT, "2025 @ Dixtone - All right reserved", 40);
 
    //settings
   _hmi->setVP(DwinAddress::SETTING_TEMP, settings.temp);
@@ -50,6 +50,7 @@ void myDisplay::InitDisplayVariables()
   _hmi->setVPInt(DwinAddress::SETTING_CARVALUE_VALUE, settings.car_model);
 
   //valori dashboard
+  _lastUpdateMillis = 0; //force refresh
   UpdateDisplayVariables();
 }
 
@@ -61,9 +62,16 @@ void myDisplay::UpdateDisplayVariables(){
 
     app.checkAlarms();
 
-    DeviceSettings settings = utils.getSettings();
+    //limit serial traffic to display
+    if(_lastUpdateMillis && millis()-_lastUpdateMillis < _updateInterval){
+        return;
+    }
+    _lastUpdateMillis = millis();
 
-    if(app.CurrentPidGroup=="DPF_PIDS")
+    const DeviceSettings& settings = utils.getSettings();
+    String currentPidGroup = app.getCurrentPidGroup();
+
+    if(currentPidGroup=="MAIN_PIDS")
     {
         _hmi->setVP(DwinAddress::DASH_ICO_BATT, (app.IBS_CHARGE_LEVEL<65.0 || app.BATTERY_OEM<12.0)?0:(app.BATTERY_OEM<12.6)?1:2);
         _hmi->setVPFloat(DwinAddress::DASH_TXT_BATT, app.BATTERY_OEM);   
@@ -80,10 +88,19 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_TXT_OIL, (int)app.OIL_DEGRADATION);
         _hmi->setVPFloat(DwinAddress::DASH_TXT_OIL_PRESSURE, app.OIL_PRESSURE);
 
+        #if GAS_ENGINE
+        _hmi->setVPInt(DwinAddress::DASH_GAUGE_CLOGGING, map((int)app.ENGINE_COOLANT_TEMP_OEM, 30, 120, 0, 7)); //map gauge areas(7) and temp value( 0 to 115 degrees)
+        _hmi->setVPInt(DwinAddress::DASH_TXT_GEAR_TEMP, (int)app.GEAR_OIL_TEMP);
+        _hmi->setVPInt(DwinAddress::DASH_TXT_OIL_TEMP, (int)app.OIL_TEMP);
+        _hmi->setVPInt(DwinAddress::DASH_TXT_EXAUST, (int)app.EXAUST_TEMP);      
+        #else
         _hmi->setVPInt(DwinAddress::DASH_GAUGE_CLOGGING, map((int)app.DPF_CLOGGING, 0, 107, 0, 7)); //map gauge areas(7) and clogging value( 0 to 107%)
+       
+        
         _hmi->setVPInt(DwinAddress::DASH_TXT_CLOGG_PERC, (int)app.DPF_CLOGGING);  
         _hmi->setVPInt(DwinAddress::DASH_TXT_EXAUST, (int)app.DPF_EXAUST_TEMP);  
 
+        
         if(app.DPF_EXAUST_TEMP>=settings.temp_alert && app.DPF_CLOGGING>= settings.clogging_alert)
         {
             _hmi->setVP(DwinAddress::DASH_GAUGE_ICON, 1);
@@ -98,23 +115,28 @@ void myDisplay::UpdateDisplayVariables(){
         }
         else{
             _hmi->setVP(DwinAddress::DASH_GAUGE_ICON, 0);
-        }  
-
+        }          
         _hmi->setVPInt(DwinAddress::DASH_TXT_KM_REGEN, (int)app.KM_FROM_LAST_DPF);
         _hmi->setVPInt(DwinAddress::DASH_TXT_NREGEN, (int)app.DPF_REGENERATIONS);
         _hmi->setVPInt(DwinAddress::DASH_TXT_REGEN_PROCESS, (int)app.DPF_REGENERATION_PROCESS);
+        #endif
     }
-    else if(app.CurrentPidGroup=="ENG_PIDS")
+    else if(currentPidGroup=="ENG_PIDS")
     {
         //page engine
+        #if GAS_ENGINE
+        _hmi->setVPInt(DwinAddress::DASH_TXT_TURBO_PERC, (int)app.PERC_TURBO_PRESSURE); 
+        _hmi->setVPInt(DwinAddress::DASH_TXT_TURBO_TEMP, (int)app.TURBO_AIR_TEMP); 
+        #else
         _hmi->setVPInt(DwinAddress::DASH_VAL_TURBO_GAUGE, (int)(app.TURBO_BOOST_PRESSURE*100));
         _hmi->setVPFloat(DwinAddress::DASH_VAL_TURBO, app.TURBO_BOOST_PRESSURE);
         _hmi->setVPInt4(DwinAddress::DASH_VAL_DIFFPRESSURE, (int)app.DIFFERENTIAL_PRESSURE);
         _hmi->setVPInt(DwinAddress::DASH_VAL_DIFFPRESSURE_GAUGE, (int)(app.DIFFERENTIAL_PRESSURE));
-        _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE, (int)app.OVER_ENG_VALVE);
         _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE_GAUGE, 100-(int)app.OVER_ENG_VALVE); //reverse rotation for gauge
+        #endif
+        _hmi->setVPInt(DwinAddress::DASH_VAL_THR_VALVE, (int)app.OVER_ENG_VALVE);
     }
-    else if(app.CurrentPidGroup=="REMOTEKEY_PIDS")
+    else if(currentPidGroup=="REMOTEKEY_PIDS")
     {
         //page key e remotes
         _hmi->setVPInt(DwinAddress::DASH_VAL_NKEYS, (int)app.KEY_NUMBER);
@@ -122,7 +144,7 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_VAL_NREMOTE, (int)app.REMOTE_NUMBER);
         _hmi->setVPInt(DwinAddress::DASH_VAL_LASTREMOTE, (int)app.REMOTE_LAST);
     }
-    else if(app.CurrentPidGroup=="SERVICE_PIDS")
+    else if(currentPidGroup=="SERVICE_PIDS")
     {
         //page oil service
         _hmi->setVPInt(DwinAddress::DASH_TXT_OIL, (int)app.OIL_DEGRADATION);
@@ -131,9 +153,9 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_VAL_OIL_TOTAL, (int)app.NUMBER_OF_SERVICES);
         _hmi->setVPInt4(DwinAddress::DASH_VAL_OIL_GG, (int)app.SERVICE_DAY);
         _hmi->setText(DwinAddress::DASH_VAL_OIL_DATE, app.LAST_SERVICE_DATE, 14);
-        drawOilGraphValues();
+        //drawOilGraphValues();
     }
-    else if(app.CurrentPidGroup=="BATTERY_PIDS")
+    else if(currentPidGroup=="BATTERY_PIDS")
     {
         //battery values
         _hmi->setVPInt(DwinAddress::DASH_VAL_BAT_TEMP, (int)app.BATTERY_TEMP);
@@ -141,14 +163,14 @@ void myDisplay::UpdateDisplayVariables(){
         _hmi->setVPInt(DwinAddress::DASH_TXT_IBS, (int)app.IBS_CHARGE_LEVEL);
         _hmi->setVPFloat(DwinAddress::DASH_TXT_BATT, app.BATTERY_OEM);   
     }
-    else if(app.CurrentPidGroup=="GAS_PIDS")
+    else if(currentPidGroup=="GAS_PIDS")
     {
         //gasoil values
         _hmi->setVPInt(DwinAddress::DASH_VAL_GAS_TEMP, (int)app.GAS_TEMP);
         _hmi->setVPFloat(DwinAddress::DASH_VAL_GAS_PRESS, app.GAS_PRESSURE);
         _hmi->setText(DwinAddress::DASH_VAL_GAS_H2O, (int)app.GAS_H2O>0?"SI":"No", 2);
     }
-    else if(app.CurrentPidGroup=="TIRES_PIDS")
+    else if(currentPidGroup=="TIRES_PIDS")
     {
         //tires values
         _hmi->setVPFloat(DwinAddress::DASH_VAL_P_ASX, app.P_ASX);
@@ -168,16 +190,19 @@ bool myDisplay::isHomePage(){
 }
 
 void myDisplay::drawOilGraphValues(){
+  
 
-  if(app.CurrentStatus != AppStatus::Main || app.updatedOilGraphValues || app.OIL_LEVEL<0.1)
-    return;
-
+  //if(app.CurrentStatus != AppStatus::Main || app.updatedOilGraphValues) //|| app.OIL_LEVEL<0.1
+  // return;
   int displayWidth = getHmi()->getHorizontalResolution();
   int displayHeight = getHmi()->getVerticalResolution();
 
   app.updatedOilGraphValues = true;
-  utils.readOilValues();
 
+  #if !DISABLE_OIL_LOG
+  utils.readOilValues();
+  #endif
+  
   /* get values then send graph coords
   DWIN::pointCoord coordinates[] = {
     {100, 180, 0xFF00}, {290, 180, 0xF000}, {490, 180, 0x0f0f}, {680, 180, 0x0f0f}, {870, 60, 0x0f0f}
@@ -241,7 +266,7 @@ void myDisplay::drawOilGraphValues(){
         _hmi->setText(addr_distance[i], String(j), 6); 
 
         //set Y coords impostiamo le coordinate Y tenendo conto che Ymax = 180 e Ymin = 60, quindi mappiamo i valori
-        coordinates[i].y = map(app.oilLevels[i].level, 0, 70, GRAPH_Y_MIN, GRAPH_Y_MAX);       
+        coordinates[i].y = map(app.oilLevels[i].level, 0.0, 90.0, GRAPH_Y_MIN, GRAPH_Y_MAX);       
         coordinates[i].color = GRAPH_COLOR;   
         coordinates[i].w = 20;
         coordinates[i].h = 20;
@@ -251,7 +276,7 @@ void myDisplay::drawOilGraphValues(){
         // line for zero values
         _hmi->setText(addr_level[i], String(""), 6);
         _hmi->setText(addr_distance[i], String(""), 6); 
-        coordinates[i].y = coordinates[i-1].y;  
+        coordinates[i].y = i>0 ? coordinates[i-1].y : GRAPH_Y_MIN;
         coordinates[i].color = GRAPH_COLOR;
         coordinates[i].w = 0;
         coordinates[i].h = 0;
@@ -264,7 +289,7 @@ void myDisplay::drawOilGraphValues(){
   {
       _hmi->setText(addr_level[0], String(app.OIL_LEVEL), 6);
       _hmi->setText(addr_distance[0], String(1), 6); 
-      coordinates[0].y = map(app.OIL_LEVEL, 0.0, 80.0, GRAPH_Y_MIN, GRAPH_Y_MAX);        
+      coordinates[0].y = map(app.OIL_LEVEL, 0.0, 90.0, GRAPH_Y_MIN, GRAPH_Y_MAX);        
       coordinates[0].color = GRAPH_COLOR;
       coordinates[0].w = 10;
       coordinates[0].h = 10;
@@ -309,6 +334,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
 
            case DwinPage::PAGE_OIL_INFOS:
              app.switchPidGroup("SERVICE_PIDS", true);
+             drawOilGraphValues();
            break; 
 
            case DwinPage::PAGE_OIL_GRAPH:
@@ -333,7 +359,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
            break;
            
            default:
-              app.switchPidGroup("DPF_PIDS", true);
+              app.switchPidGroup("MAIN_PIDS", true);
            break;
         }
         delay(250);
@@ -346,29 +372,29 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
         }
         else if(message==DwinAddress::BT_RECONNECT_BTN)
         {
-          app.switchPidGroup("DPF_PIDS", true);
+          app.switchPidGroup("MAIN_PIDS", true);
           btUtils.connectPairedDevice(); //bluetooth pairing
         }
         else if(message==DwinAddress::BT_BACK_BTN) //back
         {
            utils.writeSettings();
-           app.switchPidGroup("DPF_PIDS", true);
+           app.switchPidGroup("MAIN_PIDS", true);
            app.displayHomePage();
         }
         else if(message==DwinAddress::BT_DEV1_BTN){ //connect device 1
-          app.switchPidGroup("DPF_PIDS", true);
+          app.switchPidGroup("MAIN_PIDS", true);
           btUtils.checkAndConnectDeviceFromList(0);
         }
         else if(message==DwinAddress::BT_DEV2_BTN){ //connect device 2
-          app.switchPidGroup("DPF_PIDS", true);
+          app.switchPidGroup("MAIN_PIDS", true);
           btUtils.checkAndConnectDeviceFromList(1);
         }
         else if(message==DwinAddress::BT_DEV3_BTN){ //connect device 3
-          app.switchPidGroup("DPF_PIDS", true);
+          app.switchPidGroup("MAIN_PIDS", true);
           btUtils.checkAndConnectDeviceFromList(2);
         }
         else if(message==DwinAddress::BT_DEV4_BTN){ //connect device 4
-          app.switchPidGroup("DPF_PIDS", true);
+          app.switchPidGroup("MAIN_PIDS", true);
           btUtils.checkAndConnectDeviceFromList(3);
         }
       break;
@@ -379,7 +405,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
         {
            utils.writeSettings();
            InitDisplayVariables();
-           app.switchPidGroup("DPF_PIDS", true);  
+           app.switchPidGroup("MAIN_PIDS", true);  
            app.displayHomePage();
         }
         else if(message==DwinAddress::SETTING_CANCEL_BT_BTN)
@@ -425,7 +451,7 @@ void myDisplay::displayEventHandler(long address, int lastByte, int message, Str
       break;
       
       case DwinAddress::SETTING_ALARM_REPEAT:
-        utils.getSettings().alarm_interval = message;
+        utils.getSettings().alarm_interval = max(message, ALARM_MIN_INTERVAL);
       break; 
     
      case DwinAddress::SETTING_READ_TIMEOUT_VALUE:

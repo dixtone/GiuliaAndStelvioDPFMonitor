@@ -1,15 +1,22 @@
 //main libraies
-#include <Math.h>
+#include <math.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <SPIFFS.h>
 #include <FS.h>
 #include <EEPROM.h>
 
+#if BLUETOOTH_BLE
+#include <esp_mac.h>
+#include "esp_bt.h"
+#include "esp_bt_device.h"
+#include "BLEsp32.h"
+#else
 #include "BluetoothSerial.h"
 #include "BTAddress.h"
 #include "BTAdvertisedDevice.h"
 #include "BTScan.h"
+#endif
 
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
