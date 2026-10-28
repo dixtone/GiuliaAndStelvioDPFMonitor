@@ -1,3 +1,8 @@
+### [UPDATE 28/10/2026]
+Improved performances and fixing some bugs.
+Some users reported random resets: by debugging these are related to brownlout events.
+To fixing that, suggested to add a capacitor (from 1000µF to upper) on +5v and GND, expecially if you are using a dc stepper-down.
+
 ### [UPDATE 22/02/2025]
 Added backlight regulation from headlight command: when **lowbeams are on**, the display **brightness goes low** and viceversa.
 

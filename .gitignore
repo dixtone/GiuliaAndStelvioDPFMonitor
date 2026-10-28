@@ -1,6 +1,6 @@
 .pio
 .vscode
 .DS_Store
-.platformio.ini
+platformio.ini
 build_version.py
 versioning
